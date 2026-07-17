@@ -1,5 +1,11 @@
 import { body, param, query } from 'express-validator'
-import { COMPLAINT_PRIORITY, COMPLAINT_STATUS, VISITOR_STATUS } from '../constants/enums.js'
+import {
+  COMPLAINT_PRIORITY,
+  COMPLAINT_STATUS,
+  INVOICE_STATUS,
+  INVOICE_TYPE,
+  VISITOR_STATUS,
+} from '../constants/enums.js'
 import { paginationRules } from './common.validator.js'
 
 export const portalVisitorListRules = [
@@ -36,3 +42,36 @@ export const portalCreateComplaintRules = [
 ]
 
 export const portalComplaintIdRules = [param('id').isMongoId()]
+
+export const portalInvoiceListRules = [
+  ...paginationRules,
+  query('status').optional().isIn(Object.values(INVOICE_STATUS)),
+  query('type').optional().isIn(Object.values(INVOICE_TYPE)),
+]
+
+export const portalInvoiceIdRules = [param('id').isMongoId()]
+
+export const portalPaymentListRules = [...paginationRules]
+
+export const portalPaymentIdRules = [param('id').isMongoId()]
+
+export const portalNoticeListRules = [...paginationRules, query('search').optional().trim()]
+
+export const portalNoticeIdRules = [param('id').isMongoId()]
+
+export const portalEventListRules = [
+  ...paginationRules,
+  query('search').optional().trim(),
+  query('from').optional().isISO8601(),
+  query('to').optional().isISO8601(),
+]
+
+export const portalEventIdRules = [param('id').isMongoId()]
+
+export const portalDocumentListRules = [
+  ...paginationRules,
+  query('search').optional().trim(),
+  query('category').optional().trim(),
+]
+
+export const portalDocumentIdRules = [param('id').isMongoId()]

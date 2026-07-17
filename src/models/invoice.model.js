@@ -114,6 +114,18 @@ invoiceSchema.index({ society: 1, invoiceNumber: 1 }, { unique: true })
 invoiceSchema.index({ society: 1, status: 1, dueDate: 1 })
 invoiceSchema.index({ society: 1, flat: 1, status: 1 })
 invoiceSchema.index({ member: 1, status: 1 })
+invoiceSchema.index(
+  { society: 1, flat: 1, type: 1, periodStart: 1, periodEnd: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      isDeleted: false,
+      status: { $nin: [INVOICE_STATUS.CANCELLED] },
+      periodStart: { $type: 'date' },
+      periodEnd: { $type: 'date' },
+    },
+  },
+)
 
 const Invoice = mongoose.model('Invoice', invoiceSchema)
 

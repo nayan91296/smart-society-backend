@@ -1,5 +1,5 @@
 import memberRepository from '../repositories/member.repository.js'
-import { HTTP_STATUS, MESSAGES } from '../constants/index.js'
+import { HTTP_STATUS } from '../constants/index.js'
 import ApiError from '../utils/ApiError.js'
 import asyncHandler from '../utils/asyncHandler.js'
 import requireSocietyContext from './requireSocietyContext.js'

@@ -52,6 +52,17 @@ const societySchema = new mongoose.Schema(
       timezone: { type: String, default: 'Asia/Kolkata' },
       currency: { type: String, default: 'INR' },
       maintenanceDueDay: { type: Number, min: 1, max: 28, default: 5 },
+      visitorPreApprovalRequired: { type: Boolean, default: false },
+      allowMemberVisitorCreation: { type: Boolean, default: true },
+      allowMemberComplaintCreation: { type: Boolean, default: true },
+      allowMemberVehicleRegistration: { type: Boolean, default: true },
+      parkingAutoAssign: { type: Boolean, default: false },
+      invoicePrefix: { type: String, trim: true, uppercase: true, maxlength: 10, default: 'INV' },
+      notifications: {
+        emailEnabled: { type: Boolean, default: true },
+        pushEnabled: { type: Boolean, default: false },
+        whatsappEnabled: { type: Boolean, default: false },
+      },
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

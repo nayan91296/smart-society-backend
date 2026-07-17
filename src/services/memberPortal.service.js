@@ -2,19 +2,29 @@ import societyRepository from '../repositories/society.repository.js'
 import memberRepository from '../repositories/member.repository.js'
 import visitorRepository from '../repositories/visitor.repository.js'
 import complaintRepository from '../repositories/complaint.repository.js'
+import invoiceRepository from '../repositories/invoice.repository.js'
+import noticeRepository from '../repositories/notice.repository.js'
+import eventRepository from '../repositories/event.repository.js'
 import flatRepository from '../repositories/flat.repository.js'
 import activityLogRepository from '../repositories/activityLog.repository.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
 import {
   generateTicketNumber,
   sanitizeComplaint,
+  sanitizeEvent,
+  sanitizeInvoice,
+  sanitizeNotice,
   sanitizeVisitor,
 } from '../helpers/entity.helper.js'
 import {
   ACTIVITY_ACTION,
   COMPLAINT_PRIORITY,
   COMPLAINT_STATUS,
+  EVENT_STATUS,
   HTTP_STATUS,
+  INVOICE_STATUS,
+  NOTICE_AUDIENCE,
+  NOTICE_STATUS,
   VISITOR_STATUS,
 } from '../constants/index.js'
 import ApiError from '../utils/ApiError.js'
@@ -24,16 +34,52 @@ class MemberPortalService {
     const societyId = member.society
     const flatId = member.flat
     const memberId = member.id
+    const now = new Date()
 
     const society = await societyRepository.findActiveById(societyId)
     const flat = await flatRepository.findInSociety(flatId, societyId)
+    const wingId = flat?.wing?._id || flat?.wing
+    const floorId = flat?.floor?._id || flat?.floor
+
+    const pendingInvoiceStatuses = [
+      INVOICE_STATUS.ISSUED,
+      INVOICE_STATUS.PARTIALLY_PAID,
+      INVOICE_STATUS.OVERDUE,
+    ]
+
+    const noticeVisibility = {
+      status: NOTICE_STATUS.PUBLISHED,
+      $and: [
+        {
+          $or: [{ publishAt: { $exists: false } }, { publishAt: null }, { publishAt: { $lte: now } }],
+        },
+        {
+          $or: [{ expiresAt: { $exists: false } }, { expiresAt: null }, { expiresAt: { $gt: now } }],
+        },
+        {
+          $or: [
+            { audience: NOTICE_AUDIENCE.SOCIETY },
+            { audience: NOTICE_AUDIENCE.WING, wing: wingId },
+            { audience: NOTICE_AUDIENCE.FLOOR, floor: floorId },
+            { audience: NOTICE_AUDIENCE.FLAT, flat: flatId },
+          ],
+        },
+      ],
+    }
 
     const [
       coResidents,
       openComplaints,
       upcomingVisitors,
+      pendingInvoices,
+      publishedNotices,
+      upcomingEvents,
       recentComplaints,
       recentVisitors,
+      recentInvoices,
+      recentNotices,
+      recentEvents,
+      pendingInvoiceDocs,
     ] = await Promise.all([
       memberRepository.findByFlat(flatId, { activeOnly: true }),
       complaintRepository.count({
@@ -48,6 +94,28 @@ class MemberPortalService {
         isDeleted: false,
         status: VISITOR_STATUS.EXPECTED,
       }),
+      invoiceRepository.count({
+        society: societyId,
+        flat: flatId,
+        isDeleted: false,
+        status: { $in: pendingInvoiceStatuses },
+      }),
+      noticeRepository.count({
+        society: societyId,
+        isDeleted: false,
+        ...noticeVisibility,
+      }),
+      eventRepository.count({
+        society: societyId,
+        isDeleted: false,
+        $or: [
+          { status: EVENT_STATUS.PUBLISHED, startAt: { $gte: now } },
+          {
+            status: EVENT_STATUS.ONGOING,
+            $or: [{ endAt: { $gte: now } }, { endAt: null }],
+          },
+        ],
+      }),
       complaintRepository.search({
         societyId,
         filter: { raisedByMember: memberId },
@@ -60,7 +128,39 @@ class MemberPortalService {
         page: 1,
         limit: 3,
       }),
+      invoiceRepository.search({
+        societyId,
+        filter: { flat: flatId },
+        page: 1,
+        limit: 3,
+      }),
+      noticeRepository.search({
+        societyId,
+        filter: noticeVisibility,
+        page: 1,
+        limit: 3,
+        sort: { isPinned: -1, publishAt: -1 },
+      }),
+      eventRepository.search({
+        societyId,
+        filter: {
+          status: { $in: [EVENT_STATUS.PUBLISHED, EVENT_STATUS.ONGOING] },
+        },
+        page: 1,
+        limit: 3,
+        sort: { startAt: 1 },
+      }),
+      invoiceRepository.find({
+        society: societyId,
+        flat: flatId,
+        isDeleted: false,
+        status: { $in: pendingInvoiceStatuses },
+      }),
     ])
+
+    const balanceDue = pendingInvoiceDocs.reduce((sum, inv) => {
+      return sum + Math.max(0, (inv.totalAmount || 0) - (inv.amountPaid || 0))
+    }, 0)
 
     const flatDoc = flat?.toJSON ? flat.toJSON() : flat
 
@@ -102,9 +202,16 @@ class MemberPortalService {
       stats: {
         openComplaints,
         upcomingVisitors,
+        pendingInvoices,
+        balanceDue,
+        publishedNotices,
+        upcomingEvents,
       },
       recentComplaints: recentComplaints.data.map(sanitizeComplaint),
       recentVisitors: recentVisitors.data.map(sanitizeVisitor),
+      recentInvoices: recentInvoices.data.map(sanitizeInvoice),
+      recentNotices: recentNotices.data.map(sanitizeNotice),
+      recentEvents: recentEvents.data.map(sanitizeEvent),
     }
   }
 

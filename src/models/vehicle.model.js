@@ -64,8 +64,19 @@ const vehicleSchema = new mongoose.Schema(
   baseSchemaOptions,
 )
 
-vehicleSchema.index({ society: 1, vehicleNumber: 1 }, { unique: true })
+vehicleSchema.index(
+  { society: 1, vehicleNumber: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } },
+)
 vehicleSchema.index({ society: 1, flat: 1, isDeleted: 1 })
+vehicleSchema.index({ society: 1, member: 1, isDeleted: 1 })
+vehicleSchema.index(
+  { parking: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { isDeleted: false, parking: { $type: 'objectId' } },
+  },
+)
 
 const Vehicle = mongoose.model('Vehicle', vehicleSchema)
 

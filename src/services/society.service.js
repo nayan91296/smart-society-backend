@@ -242,8 +242,13 @@ class SocietyService {
       Event.countDocuments({
         society: societyId,
         isDeleted: false,
-        status: { $in: [EVENT_STATUS.PUBLISHED, EVENT_STATUS.ONGOING] },
-        startAt: { $gte: now },
+        $or: [
+          { status: EVENT_STATUS.PUBLISHED, startAt: { $gte: now } },
+          {
+            status: EVENT_STATUS.ONGOING,
+            $or: [{ endAt: { $gte: now } }, { endAt: null }],
+          },
+        ],
       }),
       activityLogRepository.search({
         filter: { society: societyId },

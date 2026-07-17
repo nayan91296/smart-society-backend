@@ -49,5 +49,6 @@ router.post(
   validate(changePasswordRules),
   authController.changePassword,
 )
+router.post('/logout-all', authenticate, authController.logoutAll)
 
 export default router

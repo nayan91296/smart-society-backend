@@ -2,11 +2,14 @@ import visitorRepository from '../repositories/visitor.repository.js'
 import flatRepository from '../repositories/flat.repository.js'
 import memberRepository from '../repositories/member.repository.js'
 import activityLogRepository from '../repositories/activityLog.repository.js'
+import notificationDispatchService from './notifications/dispatch.service.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
 import {
   ACTIVITY_ACTION,
   HTTP_STATUS,
   MESSAGES,
+  NOTIFICATION_CHANNEL,
+  NOTIFICATION_TYPE,
   VISITOR_STATUS,
 } from '../constants/index.js'
 import ApiError from '../utils/ApiError.js'
@@ -75,7 +78,7 @@ class VisitorService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found in this society')
     }
 
-    let hostMemberId = payload.hostMemberId || null
+    const hostMemberId = payload.hostMemberId || null
     if (hostMemberId) {
       const host = await memberRepository.findInSociety(hostMemberId, societyId)
       if (!host) {
@@ -199,6 +202,29 @@ class VisitorService {
       ip: meta.ip,
       userAgent: meta.userAgent,
     })
+
+    if (status === VISITOR_STATUS.CHECKED_IN && visitor.hostMember) {
+      try {
+        const member = await memberRepository.findInSociety(visitor.hostMember.toString(), societyId)
+        const userId = member?.user?.toString?.() || member?.user
+        if (userId) {
+          await notificationDispatchService.dispatchToUser({
+            userId,
+            societyId,
+            title: 'Visitor checked in',
+            message: `${visitor.name} has checked in`,
+            type: NOTIFICATION_TYPE.VISITOR,
+            data: { visitorId: visitor._id.toString(), name: visitor.name },
+            entityType: 'Visitor',
+            entityId: visitor._id,
+            channels: [NOTIFICATION_CHANNEL.IN_APP],
+            createdBy: actor.id,
+          })
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
 
     return this.get(societyId, id)
   }

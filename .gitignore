@@ -18,6 +18,11 @@ coverage
 # OS
 .DS_Store
 
+# Uploads (local document storage)
+uploads
+!uploads/.gitkeep
+!uploads/documents/.gitkeep
+
 # Editor
 .vscode/*
 !.vscode/extensions.json

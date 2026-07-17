@@ -2,6 +2,7 @@ import env from '../config/env.js'
 import userRepository from '../repositories/user.repository.js'
 import tokenService from './token.service.js'
 import emailService from './email.service.js'
+import roleService from './role.service.js'
 import { generatePasswordResetToken, hashToken } from '../utils/token.util.js'
 import { HTTP_STATUS, MESSAGES, ROLES } from '../constants/index.js'
 import ApiError from '../utils/ApiError.js'
@@ -19,8 +20,20 @@ const parseExpiryToMs = (expiry) => {
   return value * multipliers[unit]
 }
 
-const sanitizeUser = (user) => {
+const sanitizeUser = async (user) => {
   const userObj = user.toJSON ? user.toJSON() : user
+  const societyId = userObj.society?._id?.toString?.() || userObj.society?.toString?.() || userObj.society
+  let permissions = []
+  try {
+    const result = await roleService.getEffectivePermissions(
+      { id: userObj._id?.toString?.() || userObj.id, role: userObj.role },
+      societyId,
+    )
+    permissions = Array.isArray(result?.permissions) ? result.permissions : []
+  } catch {
+    // Fall back to empty; frontend role catalog still applies
+  }
+
   return {
     id: userObj._id?.toString?.() || userObj.id,
     firstName: userObj.firstName,
@@ -30,6 +43,7 @@ const sanitizeUser = (user) => {
     role: userObj.role,
     society: userObj.society ?? null,
     isActive: userObj.isActive,
+    permissions,
     lastLogin: userObj.lastLogin,
     createdAt: userObj.createdAt,
     updatedAt: userObj.updatedAt,
@@ -52,7 +66,7 @@ class AuthService {
       role: ROLES.SOCIETY_ADMIN,
     })
 
-    return sanitizeUser(user)
+    return await sanitizeUser(user)
   }
 
   async login({ email, password, rememberMe = false }, meta = {}) {
@@ -75,7 +89,7 @@ class AuthService {
     await user.save({ validateBeforeSave: false })
 
     return {
-      user: sanitizeUser(user),
+      user: await sanitizeUser(user),
       accessToken,
       refreshToken,
       rememberMe,
@@ -114,7 +128,7 @@ class AuthService {
     await tokenService.storeRefreshToken(user._id, newRefreshToken, meta)
 
     return {
-      user: sanitizeUser(user),
+      user: await sanitizeUser(user),
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
     }
@@ -127,7 +141,7 @@ class AuthService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, MESSAGES.USER_NOT_FOUND)
     }
 
-    return sanitizeUser(user)
+    return await sanitizeUser(user)
   }
 
   async forgotPassword(email) {
@@ -192,6 +206,11 @@ class AuthService {
     await tokenService.revokeAllUserTokens(user._id)
 
     return { message: MESSAGES.PASSWORD_CHANGED }
+  }
+
+  async logoutAllSessions(userId) {
+    await tokenService.revokeAllUserTokens(userId)
+    return { message: 'All sessions revoked successfully' }
   }
 }
 

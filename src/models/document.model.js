@@ -38,6 +38,11 @@ const documentSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    storageKey: {
+      type: String,
+      trim: true,
+      index: true,
+    },
     mimeType: {
       type: String,
       trim: true,
@@ -67,6 +72,11 @@ const documentSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    uploadedForMember: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Member',
+      default: null,
+    },
     ...softDeleteFields,
   },
   baseSchemaOptions,
@@ -74,6 +84,8 @@ const documentSchema = new mongoose.Schema(
 
 documentSchema.index({ society: 1, category: 1, createdAt: -1 })
 documentSchema.index({ society: 1, visibility: 1, isDeleted: 1 })
+documentSchema.index({ society: 1, wing: 1, visibility: 1 })
+documentSchema.index({ society: 1, flat: 1, visibility: 1 })
 
 const Document = mongoose.model('Document', documentSchema)
 

@@ -105,6 +105,12 @@ class AuthController {
 
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, null, result.message))
   })
+
+  logoutAll = asyncHandler(async (req, res) => {
+    const result = await authService.logoutAllSessions(req.user.id)
+    clearRefreshCookie(res)
+    res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, null, result.message))
+  })
 }
 
 export default new AuthController()

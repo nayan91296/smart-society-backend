@@ -58,8 +58,12 @@ const parkingSchema = new mongoose.Schema(
   baseSchemaOptions,
 )
 
-parkingSchema.index({ society: 1, slotNumber: 1 }, { unique: true })
+parkingSchema.index(
+  { society: 1, slotNumber: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } },
+)
 parkingSchema.index({ society: 1, status: 1, isDeleted: 1 })
+parkingSchema.index({ society: 1, assignedVehicle: 1, isDeleted: 1 })
 
 const Parking = mongoose.model('Parking', parkingSchema)
 

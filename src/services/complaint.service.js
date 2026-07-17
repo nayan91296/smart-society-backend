@@ -1,7 +1,9 @@
 import complaintRepository from '../repositories/complaint.repository.js'
 import flatRepository from '../repositories/flat.repository.js'
 import memberRepository from '../repositories/member.repository.js'
+import userRepository from '../repositories/user.repository.js'
 import activityLogRepository from '../repositories/activityLog.repository.js'
+import notificationDispatchService from './notifications/dispatch.service.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
 import {
   ACTIVITY_ACTION,
@@ -9,6 +11,9 @@ import {
   COMPLAINT_STATUS,
   HTTP_STATUS,
   MESSAGES,
+  NOTIFICATION_CHANNEL,
+  NOTIFICATION_TYPE,
+  ROLES,
 } from '../constants/index.js'
 import ApiError from '../utils/ApiError.js'
 import { generateTicketNumber, sanitizeComplaint } from '../helpers/entity.helper.js'
@@ -62,7 +67,7 @@ class ComplaintService {
 
   async create(societyId, payload, actor, meta = {}) {
     let flatId = payload.flatId || null
-    let raisedByMemberId = payload.raisedByMemberId || null
+    const raisedByMemberId = payload.raisedByMemberId || null
 
     if (flatId) {
       const flat = await flatRepository.findInSociety(flatId, societyId)
@@ -104,6 +109,31 @@ class ComplaintService {
       ip: meta.ip,
       userAgent: meta.userAgent,
     })
+
+    try {
+      const admins = await userRepository.model.find({
+        society: societyId,
+        role: ROLES.SOCIETY_ADMIN,
+        isActive: true,
+        isDeleted: false,
+      })
+      await notificationDispatchService.dispatchToUsers(
+        admins.map((u) => u._id.toString()),
+        {
+          societyId,
+          title: 'New complaint',
+          message: `${complaint.ticketNumber}: ${complaint.title}`,
+          type: NOTIFICATION_TYPE.COMPLAINT,
+          data: { complaintId: complaint._id.toString(), ticketNumber: complaint.ticketNumber },
+          entityType: 'Complaint',
+          entityId: complaint._id,
+          channels: [NOTIFICATION_CHANNEL.IN_APP],
+          createdBy: actor.id,
+        },
+      )
+    } catch {
+      // Non-blocking
+    }
 
     return this.get(societyId, complaint._id)
   }

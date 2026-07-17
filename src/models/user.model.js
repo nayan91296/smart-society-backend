@@ -68,6 +68,26 @@ const userSchema = new mongoose.Schema(
     lastLogin: {
       type: Date,
     },
+    notificationPreferences: {
+      channels: {
+        inApp: {
+          enabled: { type: Boolean, default: true },
+        },
+        email: {
+          enabled: { type: Boolean, default: true },
+        },
+        push: {
+          enabled: { type: Boolean, default: false },
+        },
+        whatsapp: {
+          enabled: { type: Boolean, default: false },
+        },
+      },
+      mutedTypes: {
+        type: [String],
+        default: [],
+      },
+    },
     ...softDeleteFields,
   },
   {

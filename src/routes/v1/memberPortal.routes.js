@@ -10,6 +10,16 @@ import {
   portalComplaintListRules,
   portalCreateComplaintRules,
   portalCreateVisitorRules,
+  portalDocumentIdRules,
+  portalDocumentListRules,
+  portalEventIdRules,
+  portalEventListRules,
+  portalInvoiceIdRules,
+  portalInvoiceListRules,
+  portalNoticeIdRules,
+  portalNoticeListRules,
+  portalPaymentIdRules,
+  portalPaymentListRules,
   portalVisitorIdRules,
   portalVisitorListRules,
 } from '../../validators/memberPortal.validator.js'
@@ -43,5 +53,22 @@ router.get(
   validate(portalComplaintIdRules),
   memberPortalController.getComplaint,
 )
+
+router.get('/invoices', validate(portalInvoiceListRules), memberPortalController.listInvoices)
+router.get('/invoices/:id', validate(portalInvoiceIdRules), memberPortalController.getInvoice)
+
+router.get('/payments', validate(portalPaymentListRules), memberPortalController.listPayments)
+router.get('/payments/:id', validate(portalPaymentIdRules), memberPortalController.getPayment)
+
+router.get('/notices', validate(portalNoticeListRules), memberPortalController.listNotices)
+router.get('/notices/:id', validate(portalNoticeIdRules), memberPortalController.getNotice)
+
+router.get('/events', validate(portalEventListRules), memberPortalController.listEvents)
+router.get('/events/:id', validate(portalEventIdRules), memberPortalController.getEvent)
+router.post('/events/:id/rsvp', validate(portalEventIdRules), memberPortalController.rsvpEvent)
+router.delete('/events/:id/rsvp', validate(portalEventIdRules), memberPortalController.cancelRsvp)
+
+router.get('/documents', validate(portalDocumentListRules), memberPortalController.listDocuments)
+router.get('/documents/:id', validate(portalDocumentIdRules), memberPortalController.getDocument)
 
 export default router
