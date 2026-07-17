@@ -261,16 +261,18 @@ export const sanitizeEvent = (event) => {
   }
 }
 
-export const sanitizeDocument = (document) => {
+export const sanitizeDocument = (document, { downloadBase = '/society/documents' } = {}) => {
   const doc = document.toJSON ? document.toJSON() : document
+  const id = doc._id?.toString?.() || doc.id
   return {
-    id: doc._id?.toString?.() || doc.id,
+    id,
     society: doc.society,
     title: doc.title,
     description: doc.description,
     category: doc.category,
     fileName: doc.fileName,
     fileUrl: doc.fileUrl,
+    downloadUrl: `${downloadBase}/${id}/download`,
     storageKey: doc.storageKey,
     mimeType: doc.mimeType,
     size: doc.size,

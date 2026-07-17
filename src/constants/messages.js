@@ -28,4 +28,8 @@ export const MESSAGES = {
   PASSWORD_CHANGED: 'Password changed successfully',
   CURRENT_PASSWORD_INCORRECT: 'Current password is incorrect',
   PASSWORD_SAME: 'New password must be different from the current password',
+  SOCIETY_NOT_ACTIVE:
+    'This society is suspended or inactive. Contact support or Super Admin.',
+  SOCIETY_CONTEXT_REQUIRED:
+    'Society context required. Set X-Society-Id or select a society via /super-admin/context.',
 }

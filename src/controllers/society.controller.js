@@ -1,6 +1,7 @@
 import societyService from '../services/society.service.js'
 import { HTTP_STATUS, MESSAGES } from '../constants/index.js'
 import { ApiResponse, asyncHandler } from '../utils/index.js'
+import { mergeWingScope } from '../helpers/wingScope.helper.js'
 
 const getMeta = (req) => ({
   ip: req.ip,
@@ -31,7 +32,7 @@ class SocietyController {
   })
 
   getDashboard = asyncHandler(async (req, res) => {
-    const dashboard = await societyService.getDashboard(req.societyId)
+    const dashboard = await societyService.getDashboard(req.societyId, { wingId: req.wingId })
     res
       .status(HTTP_STATUS.OK)
       .json(new ApiResponse(HTTP_STATUS.OK, { dashboard }, MESSAGES.SUCCESS))
@@ -138,17 +139,30 @@ class SocietyController {
   })
 
   listFlats = asyncHandler(async (req, res) => {
-    const data = await societyService.listFlats(req.societyId, req.query)
+    const data = await societyService.listFlats(
+      req.societyId,
+      mergeWingScope(req.query, req.wingId),
+    )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, data, MESSAGES.SUCCESS))
   })
 
   getFlat = asyncHandler(async (req, res) => {
-    const flat = await societyService.getFlat(req.societyId, req.params.id)
+    const flat = await societyService.getFlat(req.societyId, req.params.id, {
+      wingId: req.wingId,
+    })
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, { flat }, MESSAGES.SUCCESS))
   })
 
   createFlat = asyncHandler(async (req, res) => {
-    const flat = await societyService.createFlat(req.societyId, req.body, req.user, getMeta(req))
+    const payload = { ...req.body }
+    if (req.wingId) payload.wingId = req.wingId
+    const flat = await societyService.createFlat(
+      req.societyId,
+      payload,
+      req.user,
+      getMeta(req),
+      { wingId: req.wingId },
+    )
     res
       .status(HTTP_STATUS.CREATED)
       .json(new ApiResponse(HTTP_STATUS.CREATED, { flat }, MESSAGES.CREATED))
@@ -161,6 +175,7 @@ class SocietyController {
       req.body,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, { flat }, MESSAGES.UPDATED))
   })
@@ -171,6 +186,7 @@ class SocietyController {
       req.params.id,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, null, result.message))
   })

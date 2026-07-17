@@ -4,6 +4,7 @@ import activityLogRepository from '../repositories/activityLog.repository.js'
 import Complaint from '../models/complaint.model.js'
 import Staff from '../models/staff.model.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
+import { applyWingFlatFilter, assertFlatInWing, getRefId } from '../helpers/wingScope.helper.js'
 import {
   generateWorkOrderNumber,
   sanitizeMaintenance,
@@ -20,14 +21,20 @@ import ApiError from '../utils/ApiError.js'
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 class MaintenanceService {
+  async #assertMaintenanceInWing(item, societyId, wingId) {
+    if (!wingId) return
+    await assertFlatInWing(getRefId(item.flat), societyId, wingId)
+  }
+
   async list(societyId, query = {}) {
     const { page, limit } = getPagination(query.page, query.limit)
     const filter = {}
 
     if (query.status) filter.status = query.status
     if (query.priority) filter.priority = query.priority
-    if (query.flatId) filter.flat = query.flatId
     if (query.category) filter.category = new RegExp(escapeRegex(query.category), 'i')
+
+    await applyWingFlatFilter(filter, societyId, query.wingId || null, query.flatId || null)
 
     if (query.search) {
       const regex = new RegExp(escapeRegex(query.search), 'i')
@@ -47,11 +54,12 @@ class MaintenanceService {
     }
   }
 
-  async get(societyId, id) {
+  async get(societyId, id, scope = {}) {
     const item = await maintenanceRepository.findInSociety(id, societyId)
     if (!item) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Maintenance work order not found')
     }
+    await this.#assertMaintenanceInWing(item, societyId, scope.wingId)
     return sanitizeMaintenance(item)
   }
 
@@ -96,7 +104,11 @@ class MaintenanceService {
     }
   }
 
-  async create(societyId, payload, actor, meta = {}) {
+  async create(societyId, payload, actor, meta = {}, scope = {}) {
+    if (scope.wingId) {
+      await assertFlatInWing(payload.flatId || null, societyId, scope.wingId)
+    }
+
     await this.#validateRefs(societyId, payload)
 
     if (payload.scheduledAt && Number.isNaN(new Date(payload.scheduledAt).getTime())) {
@@ -145,10 +157,10 @@ class MaintenanceService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, item._id)
+    return this.get(societyId, item._id, scope)
   }
 
-  async update(societyId, id, payload, actor, meta = {}) {
+  async update(societyId, id, payload, actor, meta = {}, scope = {}) {
     const item = await maintenanceRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -156,6 +168,12 @@ class MaintenanceService {
     })
     if (!item) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Maintenance work order not found')
+    }
+
+    await this.#assertMaintenanceInWing(item, societyId, scope.wingId)
+
+    if (scope.wingId && payload.flatId !== undefined) {
+      await assertFlatInWing(payload.flatId || null, societyId, scope.wingId)
     }
 
     await this.#validateRefs(societyId, {
@@ -214,10 +232,10 @@ class MaintenanceService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, id)
+    return this.get(societyId, id, scope)
   }
 
-  async updateStatus(societyId, id, payload, actor, meta = {}) {
+  async updateStatus(societyId, id, payload, actor, meta = {}, scope = {}) {
     const item = await maintenanceRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -226,6 +244,8 @@ class MaintenanceService {
     if (!item) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Maintenance work order not found')
     }
+
+    await this.#assertMaintenanceInWing(item, societyId, scope.wingId)
 
     this.#applyStatus(item, payload.status)
 
@@ -250,10 +270,10 @@ class MaintenanceService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, id)
+    return this.get(societyId, id, scope)
   }
 
-  async softDelete(societyId, id, actor, meta = {}) {
+  async softDelete(societyId, id, actor, meta = {}, scope = {}) {
     const item = await maintenanceRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -262,6 +282,8 @@ class MaintenanceService {
     if (!item) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Maintenance work order not found')
     }
+
+    await this.#assertMaintenanceInWing(item, societyId, scope.wingId)
 
     item.isDeleted = true
     item.deletedAt = new Date()

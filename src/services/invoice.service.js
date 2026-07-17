@@ -117,7 +117,11 @@ class InvoiceService {
       return member._id
     }
 
-    const primaries = await memberRepository.findByFlat(flatId, { activeOnly: true, limit: 1 })
+    const primaries = await memberRepository.findByFlat(flatId, {
+      societyId,
+      activeOnly: true,
+      limit: 1,
+    })
     return primaries[0]?._id || null
   }
 

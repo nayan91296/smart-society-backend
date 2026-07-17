@@ -13,6 +13,19 @@ class SuperAdminController {
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, data, MESSAGES.SUCCESS))
   })
 
+  getContext = asyncHandler(async (req, res) => {
+    const data = await superAdminService.getContext(req.user.id)
+    res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, data, MESSAGES.SUCCESS))
+  })
+
+  setContext = asyncHandler(async (req, res) => {
+    const societyId = Object.prototype.hasOwnProperty.call(req.body, 'societyId')
+      ? req.body.societyId
+      : null
+    const data = await superAdminService.setContext(req.user.id, societyId)
+    res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, data, MESSAGES.UPDATED))
+  })
+
   listSocieties = asyncHandler(async (req, res) => {
     const data = await superAdminService.listSocieties(req.query)
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, data, MESSAGES.SUCCESS))

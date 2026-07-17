@@ -7,6 +7,8 @@ import {
   HTTP_STATUS,
   MESSAGES,
   NOTIFICATION_TYPE,
+  PATCHABLE_USER_ROLES,
+  PREFERRED_LANGUAGE,
   ROLES,
 } from '../constants/index.js'
 import ApiError from '../utils/ApiError.js'
@@ -34,6 +36,16 @@ const sanitizeSocietySettings = (society) => {
   }
 }
 
+const defaultNotificationPreferences = () => ({
+  channels: {
+    inApp: { enabled: true },
+    email: { enabled: true },
+    push: { enabled: false },
+    whatsapp: { enabled: false },
+  },
+  mutedTypes: [],
+})
+
 const sanitizeProfile = (user) => {
   const userObj = user.toJSON ? user.toJSON() : user
   return {
@@ -45,16 +57,9 @@ const sanitizeProfile = (user) => {
     role: userObj.role,
     society: userObj.society ?? null,
     avatarUrl: userObj.avatarUrl ?? null,
+    preferredLanguage: userObj.preferredLanguage || PREFERRED_LANGUAGE.EN,
     isActive: userObj.isActive,
-    notificationPreferences: userObj.notificationPreferences || {
-      channels: {
-        inApp: { enabled: true },
-        email: { enabled: true },
-        push: { enabled: false },
-        whatsapp: { enabled: false },
-      },
-      mutedTypes: [],
-    },
+    notificationPreferences: userObj.notificationPreferences || defaultNotificationPreferences(),
     lastLogin: userObj.lastLogin,
     createdAt: userObj.createdAt,
     updatedAt: userObj.updatedAt,
@@ -126,6 +131,7 @@ class SettingsService {
     if (payload.lastName !== undefined) user.lastName = payload.lastName
     if (payload.phone !== undefined) user.phone = payload.phone
     if (payload.avatarUrl !== undefined) user.avatarUrl = payload.avatarUrl
+    if (payload.preferredLanguage !== undefined) user.preferredLanguage = payload.preferredLanguage
 
     if (payload.email !== undefined && payload.email.toLowerCase() !== user.email) {
       const existing = await userRepository.findByEmail(payload.email)
@@ -156,6 +162,91 @@ class SettingsService {
     return { notificationPreferences: profile.notificationPreferences }
   }
 
+  async getUserPreferences(userId) {
+    const profile = await this.getProfile(userId)
+    return {
+      preferredLanguage: profile.preferredLanguage,
+      notificationPreferences: profile.notificationPreferences,
+    }
+  }
+
+  async updateUserPreferences(userId, payload, meta = {}) {
+    const user = await userRepository.findById(userId)
+    if (!user) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, MESSAGES.USER_NOT_FOUND)
+    }
+
+    if (payload.preferredLanguage !== undefined) {
+      user.preferredLanguage = payload.preferredLanguage
+    }
+
+    const notificationPayload =
+      payload.notificationPreferences !== undefined
+        ? payload.notificationPreferences
+        : {
+            ...(payload.channels !== undefined && { channels: payload.channels }),
+            ...(payload.mutedTypes !== undefined && { mutedTypes: payload.mutedTypes }),
+          }
+
+    const shouldUpdateNotifications =
+      payload.notificationPreferences !== undefined ||
+      payload.channels !== undefined ||
+      payload.mutedTypes !== undefined
+
+    if (shouldUpdateNotifications) {
+      const current =
+        user.notificationPreferences?.toObject?.() ||
+        user.notificationPreferences ||
+        defaultNotificationPreferences()
+
+      const next = {
+        channels: {
+          inApp: { enabled: current.channels?.inApp?.enabled !== false },
+          email: { enabled: current.channels?.email?.enabled !== false },
+          push: { enabled: Boolean(current.channels?.push?.enabled) },
+          whatsapp: { enabled: Boolean(current.channels?.whatsapp?.enabled) },
+        },
+        mutedTypes: [...(current.mutedTypes || [])],
+      }
+
+      if (notificationPayload.channels) {
+        for (const key of ['inApp', 'email', 'push', 'whatsapp']) {
+          if (notificationPayload.channels[key]?.enabled !== undefined) {
+            next.channels[key].enabled = Boolean(notificationPayload.channels[key].enabled)
+          }
+        }
+      }
+
+      if (notificationPayload.mutedTypes !== undefined) {
+        const validTypes = Object.values(NOTIFICATION_TYPE)
+        next.mutedTypes = (notificationPayload.mutedTypes || []).filter((t) =>
+          validTypes.includes(t),
+        )
+      }
+
+      user.notificationPreferences = next
+    }
+
+    await user.save()
+
+    await activityLogRepository.log({
+      society: user.society,
+      user: userId,
+      action: ACTIVITY_ACTION.UPDATE,
+      entityType: 'User',
+      entityId: user._id,
+      description: 'User preferences updated',
+      ip: meta.ip,
+      userAgent: meta.userAgent,
+    })
+
+    const profile = sanitizeProfile(user)
+    return {
+      preferredLanguage: profile.preferredLanguage,
+      notificationPreferences: profile.notificationPreferences,
+    }
+  }
+
   async updateNotificationPreferences(userId, payload, meta = {}) {
     const user = await userRepository.findById(userId)
     if (!user) {
@@ -164,15 +255,8 @@ class SettingsService {
 
     const current =
       user.notificationPreferences?.toObject?.() ||
-      user.notificationPreferences || {
-        channels: {
-          inApp: { enabled: true },
-          email: { enabled: true },
-          push: { enabled: false },
-          whatsapp: { enabled: false },
-        },
-        mutedTypes: [],
-      }
+      user.notificationPreferences ||
+      defaultNotificationPreferences()
 
     const next = {
       channels: {
@@ -261,7 +345,7 @@ class SettingsService {
 
     const users = await userRepository.model
       .find(filter)
-      .select('firstName lastName email phone role isActive lastLogin createdAt')
+      .select('firstName lastName email phone role managedWing isActive lastLogin createdAt')
       .sort({ createdAt: -1 })
       .limit(200)
 
@@ -273,6 +357,7 @@ class SettingsService {
         email: u.email,
         phone: u.phone ?? null,
         role: u.role,
+        managedWing: u.managedWing ? u.managedWing.toString() : null,
         isActive: u.isActive,
         lastLogin: u.lastLogin,
         createdAt: u.createdAt,
@@ -299,15 +384,27 @@ class SettingsService {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Cannot manage SUPER_ADMIN users')
     }
 
+    const previousRole = user.role
+    let roleChanged = false
+
     if (payload.role !== undefined) {
       if (payload.role === ROLES.SUPER_ADMIN) {
         throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Cannot assign SUPER_ADMIN role')
       }
-      if (![ROLES.SOCIETY_ADMIN, ROLES.MEMBER].includes(payload.role)) {
+      if (payload.role === ROLES.WING_SECRETARY) {
+        throw new ApiError(
+          HTTP_STATUS.BAD_REQUEST,
+          'Use POST /society/wings/:wingId/secretary to assign WING_SECRETARY',
+        )
+      }
+      if (!PATCHABLE_USER_ROLES.includes(payload.role)) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid role')
       }
-      // Society admin cannot escalate another admin beyond MEMBER/SOCIETY_ADMIN (already constrained)
       user.role = payload.role
+      if (payload.role !== ROLES.WING_SECRETARY) {
+        user.managedWing = null
+      }
+      roleChanged = previousRole !== payload.role
     }
 
     if (payload.isActive !== undefined) user.isActive = payload.isActive
@@ -317,7 +414,7 @@ class SettingsService {
 
     await user.save()
 
-    if (payload.isActive === false) {
+    if (payload.isActive === false || roleChanged) {
       await tokenService.revokeAllUserTokens(user._id)
     }
 
@@ -340,6 +437,7 @@ class SettingsService {
         email: user.email,
         phone: user.phone ?? null,
         role: user.role,
+        managedWing: user.managedWing ? user.managedWing.toString() : null,
         isActive: user.isActive,
       },
     }

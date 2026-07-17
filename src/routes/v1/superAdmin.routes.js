@@ -7,6 +7,7 @@ import { ROLES } from '../../constants/roles.js'
 import {
   activityLogListRules,
   createSocietyRules,
+  societyContextRules,
   societyIdRules,
   societyListRules,
   societyStatusRules,
@@ -22,6 +23,9 @@ const router = Router()
 router.use(authenticate, authorize(ROLES.SUPER_ADMIN))
 
 router.get('/dashboard', superAdminController.getDashboard)
+
+router.get('/context', superAdminController.getContext)
+router.post('/context', validate(societyContextRules), superAdminController.setContext)
 
 router.get('/societies', validate(societyListRules), superAdminController.listSocieties)
 router.post('/societies', validate(createSocietyRules), superAdminController.createSociety)

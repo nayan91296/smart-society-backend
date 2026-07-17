@@ -1,6 +1,7 @@
 import documentRepository from '../repositories/document.repository.js'
 import wingRepository from '../repositories/wing.repository.js'
 import flatRepository from '../repositories/flat.repository.js'
+import memberRepository from '../repositories/member.repository.js'
 import activityLogRepository from '../repositories/activityLog.repository.js'
 import documentStorage from './storage.service.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
@@ -14,6 +15,8 @@ import {
 import ApiError from '../utils/ApiError.js'
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const MEMBER_DOWNLOAD_BASE = '/member/documents'
+const ADMIN_DOWNLOAD_BASE = '/society/documents'
 
 class DocumentService {
   async list(societyId, query = {}) {
@@ -33,7 +36,9 @@ class DocumentService {
     const result = await documentRepository.search({ societyId, filter, page, limit })
 
     return {
-      documents: result.data.map(sanitizeDocument),
+      documents: result.data.map((d) =>
+        sanitizeDocument(d, { downloadBase: ADMIN_DOWNLOAD_BASE }),
+      ),
       pagination: getPaginationMeta(result.total, page, limit),
     }
   }
@@ -43,7 +48,16 @@ class DocumentService {
     if (!document) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Document not found')
     }
-    return sanitizeDocument(document)
+    return sanitizeDocument(document, { downloadBase: ADMIN_DOWNLOAD_BASE })
+  }
+
+  async #validateUploadedForMember(societyId, memberId) {
+    if (!memberId) return null
+    const member = await memberRepository.findInSociety(memberId, societyId)
+    if (!member) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, 'uploadedForMemberId not found in this society')
+    }
+    return member._id
   }
 
   async #validateVisibility(societyId, visibility, payload) {
@@ -81,6 +95,10 @@ class DocumentService {
 
     const visibility = payload.visibility || DOCUMENT_VISIBILITY.SOCIETY
     await this.#validateVisibility(societyId, visibility, payload)
+    const uploadedForMember = await this.#validateUploadedForMember(
+      societyId,
+      payload.uploadedForMemberId,
+    )
 
     const storageKey = documentStorage.buildStorageKey(file.filename)
     const fileUrl = documentStorage.buildPublicUrl(storageKey)
@@ -99,7 +117,7 @@ class DocumentService {
       wing: visibility === DOCUMENT_VISIBILITY.WING ? payload.wingId : payload.wingId || null,
       flat: visibility === DOCUMENT_VISIBILITY.FLAT ? payload.flatId : payload.flatId || null,
       uploadedBy: actor.id,
-      uploadedForMember: payload.uploadedForMemberId || null,
+      uploadedForMember,
     })
 
     await activityLogRepository.log({
@@ -152,7 +170,10 @@ class DocumentService {
     })
 
     if (payload.uploadedForMemberId !== undefined) {
-      document.uploadedForMember = payload.uploadedForMemberId || null
+      document.uploadedForMember = await this.#validateUploadedForMember(
+        societyId,
+        payload.uploadedForMemberId,
+      )
     }
 
     await document.save()
@@ -203,6 +224,20 @@ class DocumentService {
     return { message: MESSAGES.DELETED }
   }
 
+  async getDownloadStream(societyId, id) {
+    const document = await documentRepository.findInSociety(id, societyId)
+    if (!document || !document.storageKey) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Document not found')
+    }
+
+    const absolutePath = documentStorage.resolveAbsolutePath(document.storageKey)
+    return {
+      absolutePath,
+      fileName: document.fileName || 'document',
+      mimeType: document.mimeType || 'application/octet-stream',
+    }
+  }
+
   #memberVisibilityFilter(member, flat) {
     const wingId = flat?.wing?._id || flat?.wing
 
@@ -243,7 +278,9 @@ class DocumentService {
     })
 
     return {
-      documents: result.data.map(sanitizeDocument),
+      documents: result.data.map((d) =>
+        sanitizeDocument(d, { downloadBase: MEMBER_DOWNLOAD_BASE }),
+      ),
       pagination: getPaginationMeta(result.total, page, limit),
     }
   }
@@ -276,7 +313,12 @@ class DocumentService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Document not found')
     }
 
-    return sanitizeDocument(document)
+    return sanitizeDocument(document, { downloadBase: MEMBER_DOWNLOAD_BASE })
+  }
+
+  async getDownloadStreamForMember(member, id) {
+    await this.getForMember(member, id)
+    return this.getDownloadStream(member.society, id)
   }
 }
 

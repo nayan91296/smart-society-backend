@@ -78,7 +78,12 @@ class NotificationService {
 
     if (payload.userId) {
       const user = await userRepository.findById(payload.userId)
-      if (!user || (user.society && user.society.toString() !== societyId)) {
+      if (
+        !user ||
+        user.isDeleted ||
+        !user.society ||
+        user.society.toString() !== societyId.toString()
+      ) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found in this society')
       }
       userIds.add(user._id.toString())

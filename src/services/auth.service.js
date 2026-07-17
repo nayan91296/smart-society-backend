@@ -1,10 +1,11 @@
 import env from '../config/env.js'
 import userRepository from '../repositories/user.repository.js'
+import societyRepository from '../repositories/society.repository.js'
 import tokenService from './token.service.js'
 import emailService from './email.service.js'
 import roleService from './role.service.js'
 import { generatePasswordResetToken, hashToken } from '../utils/token.util.js'
-import { HTTP_STATUS, MESSAGES, ROLES } from '../constants/index.js'
+import { HTTP_STATUS, MESSAGES, PREFERRED_LANGUAGE, ROLES, SOCIETY_STATUS } from '../constants/index.js'
 import ApiError from '../utils/ApiError.js'
 
 const parseExpiryToMs = (expiry) => {
@@ -34,6 +35,12 @@ const sanitizeUser = async (user) => {
     // Fall back to empty; frontend role catalog still applies
   }
 
+  const managedWing =
+    userObj.managedWing?._id?.toString?.() ||
+    userObj.managedWing?.toString?.() ||
+    userObj.managedWing ||
+    null
+
   return {
     id: userObj._id?.toString?.() || userObj.id,
     firstName: userObj.firstName,
@@ -42,6 +49,9 @@ const sanitizeUser = async (user) => {
     phone: userObj.phone ?? null,
     role: userObj.role,
     society: userObj.society ?? null,
+    activeSocietyContext: userObj.activeSocietyContext ?? null,
+    managedWing,
+    preferredLanguage: userObj.preferredLanguage || PREFERRED_LANGUAGE.EN,
     isActive: userObj.isActive,
     permissions,
     lastLogin: userObj.lastLogin,
@@ -50,8 +60,29 @@ const sanitizeUser = async (user) => {
   }
 }
 
+/** Blocks non-SUPER_ADMIN users when their society is not ACTIVE. */
+const assertTenantSocietyAllowsAccess = async (user) => {
+  if (user.role === ROLES.SUPER_ADMIN) return
+
+  if (!user.society) {
+    throw new ApiError(
+      HTTP_STATUS.FORBIDDEN,
+      'No society assigned to this account. Contact Super Admin.',
+    )
+  }
+
+  const society = await societyRepository.findByIdNotDeleted(user.society)
+  if (!society) {
+    throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Assigned society was not found')
+  }
+
+  if (society.status !== SOCIETY_STATUS.ACTIVE) {
+    throw new ApiError(HTTP_STATUS.FORBIDDEN, MESSAGES.SOCIETY_NOT_ACTIVE)
+  }
+}
+
 class AuthService {
-  async registerSocietyAdmin({ firstName, lastName, email, password }) {
+  async registerSocietyAdmin({ firstName, lastName, email, password, preferredLanguage }) {
     const existing = await userRepository.findByEmail(email)
 
     if (existing) {
@@ -64,6 +95,7 @@ class AuthService {
       email,
       password,
       role: ROLES.SOCIETY_ADMIN,
+      ...(preferredLanguage !== undefined && { preferredLanguage }),
     })
 
     return await sanitizeUser(user)
@@ -79,6 +111,8 @@ class AuthService {
     if (!user.isActive) {
       throw new ApiError(HTTP_STATUS.FORBIDDEN, MESSAGES.ACCOUNT_DISABLED)
     }
+
+    await assertTenantSocietyAllowsAccess(user)
 
     const accessToken = tokenService.generateAccessToken(user)
     const refreshToken = tokenService.generateRefreshToken(user, rememberMe)
@@ -119,6 +153,8 @@ class AuthService {
     if (!user || !user.isActive) {
       throw new ApiError(HTTP_STATUS.UNAUTHORIZED, MESSAGES.UNAUTHORIZED)
     }
+
+    await assertTenantSocietyAllowsAccess(user)
 
     await tokenService.revokeRefreshToken(refreshToken)
 

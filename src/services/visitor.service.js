@@ -4,6 +4,7 @@ import memberRepository from '../repositories/member.repository.js'
 import activityLogRepository from '../repositories/activityLog.repository.js'
 import notificationDispatchService from './notifications/dispatch.service.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
+import { applyWingFlatFilter, assertFlatInWing, getRefId } from '../helpers/wingScope.helper.js'
 import {
   ACTIVITY_ACTION,
   HTTP_STATUS,
@@ -30,26 +31,19 @@ const VALID_TRANSITIONS = {
 }
 
 class VisitorService {
+  async #assertVisitorInWing(visitor, societyId, wingId) {
+    if (!wingId) return
+    await assertFlatInWing(getRefId(visitor.flat), societyId, wingId)
+  }
+
   async list(societyId, query = {}) {
     const { page, limit } = getPagination(query.page, query.limit)
     const filter = {}
 
-    if (query.flatId) filter.flat = query.flatId
     if (query.hostMemberId) filter.hostMember = query.hostMemberId
     if (query.status) filter.status = query.status
 
-    if (query.wingId) {
-      const flats = await flatRepository.find({
-        society: societyId,
-        wing: query.wingId,
-        isDeleted: false,
-      })
-      filter.flat = { $in: flats.map((f) => f._id) }
-      if (query.flatId) {
-        const match = flats.some((f) => f._id.toString() === query.flatId)
-        filter.flat = match ? query.flatId : { $in: [] }
-      }
-    }
+    await applyWingFlatFilter(filter, societyId, query.wingId || null, query.flatId || null)
 
     if (query.search) {
       const regex = new RegExp(escapeRegex(query.search), 'i')
@@ -64,15 +58,18 @@ class VisitorService {
     }
   }
 
-  async get(societyId, id) {
+  async get(societyId, id, scope = {}) {
     const visitor = await visitorRepository.findInSociety(id, societyId)
     if (!visitor) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Visitor not found')
     }
+    await this.#assertVisitorInWing(visitor, societyId, scope.wingId)
     return sanitizeVisitor(visitor)
   }
 
-  async create(societyId, payload, actor, meta = {}) {
+  async create(societyId, payload, actor, meta = {}, scope = {}) {
+    await assertFlatInWing(payload.flatId, societyId, scope.wingId)
+
     const flat = await flatRepository.findInSociety(payload.flatId, societyId)
     if (!flat) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found in this society')
@@ -84,7 +81,7 @@ class VisitorService {
       if (!host) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Host member not found')
       }
-      const hostFlatId = host.flat?._id?.toString?.() || host.flat?.toString?.() || host.flat
+      const hostFlatId = getRefId(host.flat)
       if (hostFlatId !== payload.flatId) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Host member does not belong to the selected flat')
       }
@@ -115,10 +112,10 @@ class VisitorService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, visitor._id)
+    return this.get(societyId, visitor._id, scope)
   }
 
-  async update(societyId, id, payload, actor, meta = {}) {
+  async update(societyId, id, payload, actor, meta = {}, scope = {}) {
     const visitor = await visitorRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -128,7 +125,10 @@ class VisitorService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Visitor not found')
     }
 
+    await this.#assertVisitorInWing(visitor, societyId, scope.wingId)
+
     if (payload.flatId !== undefined) {
+      await assertFlatInWing(payload.flatId, societyId, scope.wingId)
       const flat = await flatRepository.findInSociety(payload.flatId, societyId)
       if (!flat) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found in this society')
       visitor.flat = payload.flatId
@@ -159,10 +159,10 @@ class VisitorService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, id)
+    return this.get(societyId, id, scope)
   }
 
-  async updateStatus(societyId, id, status, actor, meta = {}) {
+  async updateStatus(societyId, id, status, actor, meta = {}, scope = {}) {
     const visitor = await visitorRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -171,6 +171,8 @@ class VisitorService {
     if (!visitor) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Visitor not found')
     }
+
+    await this.#assertVisitorInWing(visitor, societyId, scope.wingId)
 
     const allowed = VALID_TRANSITIONS[visitor.status] || []
     if (!allowed.includes(status)) {
@@ -226,10 +228,10 @@ class VisitorService {
       }
     }
 
-    return this.get(societyId, id)
+    return this.get(societyId, id, scope)
   }
 
-  async softDelete(societyId, id, actor, meta = {}) {
+  async softDelete(societyId, id, actor, meta = {}, scope = {}) {
     const visitor = await visitorRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -238,6 +240,8 @@ class VisitorService {
     if (!visitor) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Visitor not found')
     }
+
+    await this.#assertVisitorInWing(visitor, societyId, scope.wingId)
 
     visitor.isDeleted = true
     visitor.deletedAt = new Date()

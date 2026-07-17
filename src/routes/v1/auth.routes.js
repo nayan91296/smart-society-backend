@@ -9,6 +9,7 @@ import {
   forgotPasswordRules,
   resetPasswordRules,
   changePasswordRules,
+  updatePreferencesRules,
 } from '../../validators/auth.validator.js'
 import { HTTP_STATUS, MESSAGES } from '../../constants/index.js'
 
@@ -31,6 +32,13 @@ router.post('/login', authRateLimiter, validate(loginRules), authController.logi
 router.post('/logout', authenticate, authController.logout)
 router.post('/refresh-token', authRateLimiter, authController.refreshToken)
 router.get('/me', authenticate, authController.me)
+router.get('/preferences', authenticate, authController.getPreferences)
+router.patch(
+  '/preferences',
+  authenticate,
+  validate(updatePreferencesRules),
+  authController.updatePreferences,
+)
 router.post(
   '/forgot-password',
   authRateLimiter,

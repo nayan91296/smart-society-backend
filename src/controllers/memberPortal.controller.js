@@ -130,6 +130,12 @@ class MemberPortalController {
     const document = await documentService.getForMember(req.member, req.params.id)
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, { document }, MESSAGES.SUCCESS))
   })
+
+  downloadDocument = asyncHandler(async (req, res) => {
+    const file = await documentService.getDownloadStreamForMember(req.member, req.params.id)
+    res.setHeader('Content-Type', file.mimeType)
+    res.download(file.absolutePath, file.fileName)
+  })
 }
 
 export default new MemberPortalController()

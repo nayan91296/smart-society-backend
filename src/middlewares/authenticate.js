@@ -26,6 +26,10 @@ const authenticate = asyncHandler(async (req, _res, next) => {
     firstName: user.firstName,
     lastName: user.lastName,
     society: user.society ? user.society.toString() : null,
+    activeSocietyContext: user.activeSocietyContext
+      ? user.activeSocietyContext.toString()
+      : null,
+    managedWing: user.managedWing ? user.managedWing.toString() : null,
   }
 
   next()

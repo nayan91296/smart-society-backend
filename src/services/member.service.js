@@ -3,6 +3,7 @@ import flatRepository from '../repositories/flat.repository.js'
 import userRepository from '../repositories/user.repository.js'
 import activityLogRepository from '../repositories/activityLog.repository.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
+import { applyWingFlatFilter, assertFlatInWing, getRefId } from '../helpers/wingScope.helper.js'
 import {
   ACTIVITY_ACTION,
   FLAT_STATUS,
@@ -75,28 +76,22 @@ const sanitizeMember = (member) => {
 }
 
 class MemberService {
+  async #assertMemberInWing(member, societyId, wingId) {
+    if (!wingId) return
+    const flatId = getRefId(member.flat)
+    await assertFlatInWing(flatId, societyId, wingId)
+  }
+
   async list(societyId, query = {}) {
     const { page, limit } = getPagination(query.page, query.limit)
     const filter = {}
 
-    if (query.flatId) filter.flat = query.flatId
     if (query.ownershipType) filter.ownershipType = query.ownershipType
     if (query.isActive !== undefined && query.isActive !== '') {
       filter.isActive = query.isActive === true || query.isActive === 'true'
     }
 
-    if (query.wingId) {
-      const flats = await flatRepository.find({
-        society: societyId,
-        wing: query.wingId,
-        isDeleted: false,
-      })
-      filter.flat = { $in: flats.map((f) => f._id) }
-      if (query.flatId) {
-        const match = flats.some((f) => f._id.toString() === query.flatId)
-        filter.flat = match ? query.flatId : { $in: [] }
-      }
-    }
+    await applyWingFlatFilter(filter, societyId, query.wingId || null, query.flatId || null)
 
     if (query.search) {
       const regex = new RegExp(escapeRegex(query.search), 'i')
@@ -116,11 +111,12 @@ class MemberService {
     }
   }
 
-  async get(societyId, id) {
+  async get(societyId, id, scope = {}) {
     const member = await memberRepository.findInSociety(id, societyId)
     if (!member) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Member not found')
     }
+    await this.#assertMemberInWing(member, societyId, scope.wingId)
     return sanitizeMember(member)
   }
 
@@ -168,7 +164,9 @@ class MemberService {
     }
   }
 
-  async create(societyId, payload, actor, meta = {}) {
+  async create(societyId, payload, actor, meta = {}, scope = {}) {
+    await assertFlatInWing(payload.flatId, societyId, scope.wingId)
+
     const flat = await flatRepository.findInSociety(payload.flatId, societyId)
     if (!flat) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found in this society')
@@ -177,7 +175,7 @@ class MemberService {
     const user = await this.#resolveLoginUser(societyId, payload)
 
     if (payload.isPrimary) {
-      await memberRepository.unsetPrimaryOnFlat(payload.flatId)
+      await memberRepository.unsetPrimaryOnFlat(payload.flatId, { societyId })
     }
 
     const member = await memberRepository.create({
@@ -212,10 +210,10 @@ class MemberService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, member._id)
+    return this.get(societyId, member._id, scope)
   }
 
-  async update(societyId, id, payload, actor, meta = {}) {
+  async update(societyId, id, payload, actor, meta = {}, scope = {}) {
     const member = await memberRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -225,7 +223,10 @@ class MemberService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Member not found')
     }
 
+    await this.#assertMemberInWing(member, societyId, scope.wingId)
+
     if (payload.flatId !== undefined) {
+      await assertFlatInWing(payload.flatId, societyId, scope.wingId)
       const flat = await flatRepository.findInSociety(payload.flatId, societyId)
       if (!flat) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found in this society')
@@ -234,7 +235,10 @@ class MemberService {
     }
 
     if (payload.isPrimary === true) {
-      await memberRepository.unsetPrimaryOnFlat(member.flat, member._id)
+      await memberRepository.unsetPrimaryOnFlat(member.flat, {
+        societyId,
+        exceptId: member._id,
+      })
       member.isPrimary = true
     } else if (payload.isPrimary === false) {
       member.isPrimary = false
@@ -276,10 +280,10 @@ class MemberService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, id)
+    return this.get(societyId, id, scope)
   }
 
-  async softDelete(societyId, id, actor, meta = {}) {
+  async softDelete(societyId, id, actor, meta = {}, scope = {}) {
     const member = await memberRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -288,6 +292,8 @@ class MemberService {
     if (!member) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Member not found')
     }
+
+    await this.#assertMemberInWing(member, societyId, scope.wingId)
 
     member.isDeleted = true
     member.deletedAt = new Date()
@@ -309,7 +315,7 @@ class MemberService {
     return { message: MESSAGES.DELETED }
   }
 
-  async toggleActive(societyId, id, actor, meta = {}) {
+  async toggleActive(societyId, id, actor, meta = {}, scope = {}) {
     const member = await memberRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -318,6 +324,8 @@ class MemberService {
     if (!member) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Member not found')
     }
+
+    await this.#assertMemberInWing(member, societyId, scope.wingId)
 
     member.isActive = !member.isActive
     if (!member.isActive) member.isPrimary = false
@@ -343,7 +351,7 @@ class MemberService {
       userAgent: meta.userAgent,
     })
 
-    return this.get(societyId, id)
+    return this.get(societyId, id, scope)
   }
 }
 

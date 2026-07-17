@@ -1,4 +1,5 @@
 import authService from '../services/auth.service.js'
+import settingsService from '../services/settings.service.js'
 import tokenService from '../services/token.service.js'
 import { HTTP_STATUS, MESSAGES } from '../constants/index.js'
 import { ApiResponse, asyncHandler } from '../utils/index.js'
@@ -80,6 +81,38 @@ class AuthController {
     const user = await authService.getMe(req.user.id)
 
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, { user }, MESSAGES.SUCCESS))
+  })
+
+  getPreferences = asyncHandler(async (req, res) => {
+    const preferences = await settingsService.getUserPreferences(req.user.id)
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(new ApiResponse(HTTP_STATUS.OK, { preferences }, MESSAGES.SUCCESS))
+  })
+
+  updatePreferences = asyncHandler(async (req, res) => {
+    const {
+      preferredLanguage,
+      notificationPreferences,
+      channels,
+      mutedTypes,
+    } = req.body
+
+    const preferences = await settingsService.updateUserPreferences(
+      req.user.id,
+      {
+        ...(preferredLanguage !== undefined && { preferredLanguage }),
+        ...(notificationPreferences !== undefined && { notificationPreferences }),
+        ...(channels !== undefined && { channels }),
+        ...(mutedTypes !== undefined && { mutedTypes }),
+      },
+      getRequestMeta(req),
+    )
+
+    res
+      .status(HTTP_STATUS.OK)
+      .json(new ApiResponse(HTTP_STATUS.OK, { preferences }, MESSAGES.UPDATED))
   })
 
   forgotPassword = asyncHandler(async (req, res) => {

@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import bcrypt from 'bcryptjs'
 import { ROLES, ROLE_VALUES } from '../constants/roles.js'
+import { PREFERRED_LANGUAGE, PREFERRED_LANGUAGE_VALUES } from '../constants/enums.js'
 import { softDeleteFields } from './shared/common.schema.js'
 
 const userSchema = new mongoose.Schema(
@@ -48,9 +49,27 @@ const userSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Super Admin only: last selected tenant context (client should still send X-Society-Id). */
+    activeSocietyContext: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Society',
+      default: null,
+    },
+    /** Wing assigned when role is WING_SECRETARY (exactly one secretary per wing). */
+    managedWing: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Wing',
+      default: null,
+      index: true,
+    },
     avatarUrl: {
       type: String,
       trim: true,
+    },
+    preferredLanguage: {
+      type: String,
+      enum: PREFERRED_LANGUAGE_VALUES,
+      default: PREFERRED_LANGUAGE.EN,
     },
     isActive: {
       type: Boolean,
@@ -108,6 +127,16 @@ const userSchema = new mongoose.Schema(
   },
 )
 
+userSchema.pre('validate', function validateManagedWing() {
+  if (this.role === ROLES.WING_SECRETARY) {
+    if (!this.managedWing) {
+      this.invalidate('managedWing', 'managedWing is required for WING_SECRETARY')
+    }
+  } else if (this.managedWing) {
+    this.invalidate('managedWing', 'managedWing is only allowed for WING_SECRETARY')
+  }
+})
+
 userSchema.pre('save', async function hashPassword() {
   if (!this.isModified('password')) {
     return
@@ -125,6 +154,19 @@ userSchema.virtual('fullName').get(function getFullName() {
 })
 
 userSchema.index({ society: 1, role: 1, isDeleted: 1 })
+
+/** At most one active Wing Secretary per wing. */
+userSchema.index(
+  { managedWing: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      role: ROLES.WING_SECRETARY,
+      managedWing: { $type: 'objectId' },
+      isDeleted: false,
+    },
+  },
+)
 
 const User = mongoose.model('User', userSchema)
 

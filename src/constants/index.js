@@ -6,6 +6,7 @@ export {
   DEFAULT_ROLE_PERMISSIONS,
   MEMBER_OVERRIDABLE_PERMISSIONS,
   MANAGEABLE_ROLES,
+  PATCHABLE_USER_ROLES,
   computeEffectivePermissions,
   hasPermission,
 } from './rolePermissions.js'

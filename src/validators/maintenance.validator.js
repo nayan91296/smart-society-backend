@@ -8,6 +8,7 @@ export const maintenanceListRules = [
   query('status').optional().isIn(Object.values(MAINTENANCE_STATUS)),
   query('priority').optional().isIn(Object.values(COMPLAINT_PRIORITY)),
   query('flatId').optional().isMongoId(),
+  query('wingId').optional().isMongoId(),
   query('category').optional().trim(),
 ]
 

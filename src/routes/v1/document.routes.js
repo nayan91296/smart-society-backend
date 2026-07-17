@@ -28,6 +28,7 @@ router.post(
   validate(createDocumentRules),
   documentController.create,
 )
+router.get('/:id/download', validate(documentIdRules), documentController.download)
 router.get('/:id', validate(documentIdRules), documentController.get)
 router.patch('/:id', validate(updateDocumentRules), documentController.update)
 router.delete('/:id', validate(documentIdRules), documentController.softDelete)

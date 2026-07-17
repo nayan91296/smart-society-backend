@@ -81,7 +81,7 @@ class MemberPortalService {
       recentEvents,
       pendingInvoiceDocs,
     ] = await Promise.all([
-      memberRepository.findByFlat(flatId, { activeOnly: true }),
+      memberRepository.findByFlat(flatId, { societyId, activeOnly: true }),
       complaintRepository.count({
         society: societyId,
         raisedByMember: memberId,

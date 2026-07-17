@@ -1,8 +1,8 @@
 import { body, param, query } from 'express-validator'
-import { NOTIFICATION_TYPE } from '../constants/enums.js'
+import { NOTIFICATION_TYPE, PREFERRED_LANGUAGE_VALUES } from '../constants/enums.js'
 import { ROLES } from '../constants/roles.js'
 import { PERMISSION_VALUES } from '../constants/permissions.js'
-import { MANAGEABLE_ROLES } from '../constants/rolePermissions.js'
+import { MANAGEABLE_ROLES, PATCHABLE_USER_ROLES } from '../constants/rolePermissions.js'
 import { changePasswordRules } from './auth.validator.js'
 
 export { changePasswordRules }
@@ -29,6 +29,10 @@ export const updateProfileRules = [
   body('email').optional().trim().isEmail().normalizeEmail(),
   body('phone').optional({ checkFalsy: true }).trim().isLength({ max: 20 }),
   body('avatarUrl').optional({ checkFalsy: true }).trim().isLength({ max: 500 }),
+  body('preferredLanguage')
+    .optional()
+    .isIn(PREFERRED_LANGUAGE_VALUES)
+    .withMessage('Preferred language must be en or gu'),
 ]
 
 export const updateNotificationPreferencesRules = [
@@ -45,7 +49,7 @@ export const updateNotificationPreferencesRules = [
 ]
 
 export const societyUserListRules = [
-  query('role').optional().isIn([ROLES.SOCIETY_ADMIN, ROLES.MEMBER]),
+  query('role').optional().isIn([ROLES.SOCIETY_ADMIN, ROLES.WING_SECRETARY, ROLES.MEMBER]),
   query('isActive').optional().isIn(['true', 'false']),
 ]
 
@@ -57,13 +61,16 @@ export const updateSocietyUserRules = [
   body('lastName').optional().trim().notEmpty().isLength({ max: 50 }),
   body('phone').optional({ checkFalsy: true }).trim().isLength({ max: 20 }),
   body('isActive').optional().isBoolean(),
-  body('role').optional().isIn([ROLES.SOCIETY_ADMIN, ROLES.MEMBER]),
+  body('role')
+    .optional()
+    .isIn(PATCHABLE_USER_ROLES)
+    .withMessage('Use dedicated wing secretary APIs to assign WING_SECRETARY'),
 ]
 
 export const roleParamRules = [
   param('role')
     .isIn(MANAGEABLE_ROLES)
-    .withMessage('Role must be SOCIETY_ADMIN or MEMBER'),
+    .withMessage('Role must be SOCIETY_ADMIN, WING_SECRETARY, or MEMBER'),
 ]
 
 export const updateRolePolicyRules = [

@@ -13,6 +13,7 @@ import Maintenance from '../models/maintenance.model.js'
 import Invoice from '../models/invoice.model.js'
 import Event from '../models/event.model.js'
 import { getPagination, getPaginationMeta } from '../helpers/index.js'
+import { assertFlatInWing, getRefId as scopeGetRefId, getWingFlatIds } from '../helpers/wingScope.helper.js'
 import {
   ACTIVITY_ACTION,
   COMPLAINT_STATUS,
@@ -27,11 +28,7 @@ import ApiError from '../utils/ApiError.js'
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-const getRefId = (ref) => {
-  if (!ref) return null
-  if (typeof ref === 'string') return ref
-  return ref._id?.toString?.() || ref.id?.toString?.() || null
-}
+const getRefId = scopeGetRefId
 
 const sanitizeSociety = (society) => {
   const doc = society.toJSON ? society.toJSON() : society
@@ -176,13 +173,19 @@ class SocietyService {
     }
   }
 
-  async getDashboard(societyId) {
+  async getDashboard(societyId, options = {}) {
     const society = await societyRepository.findActiveById(societyId)
     if (!society) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Society not found')
     }
 
+    const wingId = options.wingId || null
     const now = new Date()
+    const wingFilter = wingId ? { wing: wingId } : {}
+    const wingFlatIds = wingId ? await getWingFlatIds(societyId, wingId) : null
+    const complaintScope = wingFlatIds ? { flat: { $in: wingFlatIds } } : {}
+    const maintenanceScope = wingFlatIds ? { flat: { $in: wingFlatIds } } : {}
+    const memberScope = wingFlatIds ? { flat: { $in: wingFlatIds } } : {}
 
     const [
       wings,
@@ -204,23 +207,46 @@ class SocietyService {
       vacantFlatsList,
       wingsList,
     ] = await Promise.all([
-      wingRepository.count({ society: societyId, isDeleted: false }),
-      floorRepository.count({ society: societyId, isDeleted: false }),
-      flatRepository.count({ society: societyId, isDeleted: false }),
-      flatRepository.count({ society: societyId, isDeleted: false, status: FLAT_STATUS.VACANT }),
-      flatRepository.count({ society: societyId, isDeleted: false, status: FLAT_STATUS.OCCUPIED }),
+      wingId
+        ? Promise.resolve(1)
+        : wingRepository.count({ society: societyId, isDeleted: false }),
+      floorRepository.count({ society: societyId, isDeleted: false, ...wingFilter }),
+      flatRepository.count({ society: societyId, isDeleted: false, ...wingFilter }),
+      flatRepository.count({
+        society: societyId,
+        isDeleted: false,
+        status: FLAT_STATUS.VACANT,
+        ...wingFilter,
+      }),
+      flatRepository.count({
+        society: societyId,
+        isDeleted: false,
+        status: FLAT_STATUS.OCCUPIED,
+        ...wingFilter,
+      }),
       flatRepository.count({
         society: societyId,
         isDeleted: false,
         status: FLAT_STATUS.UNDER_MAINTENANCE,
+        ...wingFilter,
       }),
-      Member.countDocuments({ society: societyId, isDeleted: false, isActive: true }),
-      Staff.countDocuments({ society: societyId, isDeleted: false, isActive: true }),
-      Guard.countDocuments({ society: societyId, isDeleted: false, isActive: true }),
+      Member.countDocuments({
+        society: societyId,
+        isDeleted: false,
+        isActive: true,
+        ...memberScope,
+      }),
+      wingId
+        ? Promise.resolve(null)
+        : Staff.countDocuments({ society: societyId, isDeleted: false, isActive: true }),
+      wingId
+        ? Promise.resolve(null)
+        : Guard.countDocuments({ society: societyId, isDeleted: false, isActive: true }),
       Complaint.countDocuments({
         society: societyId,
         isDeleted: false,
         status: { $in: [COMPLAINT_STATUS.OPEN, COMPLAINT_STATUS.IN_PROGRESS] },
+        ...complaintScope,
       }),
       Maintenance.countDocuments({
         society: societyId,
@@ -232,42 +258,56 @@ class SocietyService {
             MAINTENANCE_STATUS.IN_PROGRESS,
           ],
         },
+        ...maintenanceScope,
       }),
-      Invoice.countDocuments({
-        society: societyId,
-        isDeleted: false,
-        status: { $in: [INVOICE_STATUS.ISSUED, INVOICE_STATUS.PARTIALLY_PAID, INVOICE_STATUS.OVERDUE] },
-      }),
-      paymentRepository.sumSuccessfulAmount({ society: societyId }),
-      Event.countDocuments({
-        society: societyId,
-        isDeleted: false,
-        $or: [
-          { status: EVENT_STATUS.PUBLISHED, startAt: { $gte: now } },
-          {
-            status: EVENT_STATUS.ONGOING,
-            $or: [{ endAt: { $gte: now } }, { endAt: null }],
-          },
-        ],
-      }),
+      wingId
+        ? Promise.resolve(null)
+        : Invoice.countDocuments({
+            society: societyId,
+            isDeleted: false,
+            status: {
+              $in: [INVOICE_STATUS.ISSUED, INVOICE_STATUS.PARTIALLY_PAID, INVOICE_STATUS.OVERDUE],
+            },
+          }),
+      wingId ? Promise.resolve(null) : paymentRepository.sumSuccessfulAmount({ society: societyId }),
+      wingId
+        ? Promise.resolve(null)
+        : Event.countDocuments({
+            society: societyId,
+            isDeleted: false,
+            $or: [
+              { status: EVENT_STATUS.PUBLISHED, startAt: { $gte: now } },
+              {
+                status: EVENT_STATUS.ONGOING,
+                $or: [{ endAt: { $gte: now } }, { endAt: null }],
+              },
+            ],
+          }),
       activityLogRepository.search({
         filter: { society: societyId },
         page: 1,
         limit: 8,
       }),
       flatRepository.model
-        .find({ society: societyId, isDeleted: false })
+        .find({ society: societyId, isDeleted: false, ...wingFilter })
         .populate('wing', 'name code')
         .populate('floor', 'floorNumber name')
         .sort({ updatedAt: -1 })
         .limit(5),
       flatRepository.model
-        .find({ society: societyId, isDeleted: false, status: FLAT_STATUS.VACANT })
+        .find({
+          society: societyId,
+          isDeleted: false,
+          status: FLAT_STATUS.VACANT,
+          ...wingFilter,
+        })
         .populate('wing', 'name code')
         .populate('floor', 'floorNumber name')
         .sort({ flatNumber: 1 })
         .limit(5),
-      wingRepository.findBySociety(societyId),
+      wingId
+        ? wingRepository.findBySociety(societyId, { _id: wingId })
+        : wingRepository.findBySociety(societyId),
     ])
 
     const occupancyRate = flats > 0 ? Math.round((occupied / flats) * 100) : 0
@@ -304,26 +344,33 @@ class SocietyService {
       }
     }
 
+    const stats = {
+      wings,
+      floors,
+      flats,
+      vacantFlats: vacant,
+      occupiedFlats: occupied,
+      underMaintenanceFlats: underMaintenance,
+      occupancyRate,
+      members,
+      openComplaints,
+      openMaintenance,
+    }
+
+    if (!wingId) {
+      stats.staff = staff
+      stats.guards = guards
+      stats.pendingInvoices = pendingInvoices
+      stats.successfulPaymentsTotal = successfulPaymentsTotal
+      stats.upcomingEvents = upcomingEvents
+    }
+
     return {
       society: sanitizeSociety(society),
-      stats: {
-        wings,
-        floors,
-        flats,
-        vacantFlats: vacant,
-        occupiedFlats: occupied,
-        underMaintenanceFlats: underMaintenance,
-        occupancyRate,
-        members,
-        staff,
-        guards,
-        openComplaints,
-        openMaintenance,
-        pendingInvoices,
-        successfulPaymentsTotal,
-        upcomingEvents,
-      },
-      recentActivity: recentActivity.data,
+      wingId: wingId || null,
+      scoped: Boolean(wingId),
+      stats,
+      recentActivity: wingId ? [] : recentActivity.data,
       recentFlats: recentFlats.map(sanitizeFlatRow),
       vacantFlats: vacantFlatsList.map(sanitizeFlatRow),
       wingsSummary,
@@ -331,7 +378,7 @@ class SocietyService {
         highVacancy: flats > 0 && vacant / flats >= 0.4,
         hasOpenComplaints: openComplaints > 0,
         hasOpenMaintenance: openMaintenance > 0,
-        hasPendingInvoices: pendingInvoices > 0,
+        hasPendingInvoices: !wingId && pendingInvoices > 0,
       },
     }
   }
@@ -772,15 +819,19 @@ class SocietyService {
     }
   }
 
-  async getFlat(societyId, id) {
+  async getFlat(societyId, id, scope = {}) {
     const flat = await flatRepository.findInSociety(id, societyId)
     if (!flat) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found')
     }
 
+    if (scope.wingId) {
+      await assertFlatInWing(id, societyId, scope.wingId)
+    }
+
     const [residentCount, previewMembers] = await Promise.all([
       memberRepository.countActive({ society: societyId, flat: id }),
-      memberRepository.findByFlat(id, { activeOnly: true, limit: 5 }),
+      memberRepository.findByFlat(id, { societyId, activeOnly: true, limit: 5 }),
     ])
 
     const residents = previewMembers.map((m) => {
@@ -803,8 +854,13 @@ class SocietyService {
     }
   }
 
-  async createFlat(societyId, payload, actor, meta = {}) {
-    const wing = await wingRepository.findInSociety(payload.wingId, societyId)
+  async createFlat(societyId, payload, actor, meta = {}, scope = {}) {
+    if (scope.wingId && payload.wingId && String(payload.wingId) !== String(scope.wingId)) {
+      throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Cannot create flats outside your managed wing')
+    }
+
+    const wingId = scope.wingId || payload.wingId
+    const wing = await wingRepository.findInSociety(wingId, societyId)
     if (!wing) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wing not found')
     }
@@ -814,18 +870,18 @@ class SocietyService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Floor not found')
     }
 
-    if (getRefId(floor.wing) !== payload.wingId) {
+    if (getRefId(floor.wing) !== String(wingId)) {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Floor does not belong to the selected wing')
     }
 
-    const existing = await flatRepository.findByNumber(societyId, payload.wingId, payload.flatNumber)
+    const existing = await flatRepository.findByNumber(societyId, wingId, payload.flatNumber)
     if (existing) {
       throw new ApiError(HTTP_STATUS.CONFLICT, 'Flat number already exists in this wing')
     }
 
     const flat = await flatRepository.create({
       society: societyId,
-      wing: payload.wingId,
+      wing: wingId,
       floor: payload.floorId,
       flatNumber: payload.flatNumber.toUpperCase(),
       type: payload.type,
@@ -846,10 +902,10 @@ class SocietyService {
       userAgent: meta.userAgent,
     })
 
-    return this.getFlat(societyId, flat._id)
+    return this.getFlat(societyId, flat._id, scope)
   }
 
-  async updateFlat(societyId, id, payload, actor, meta = {}) {
+  async updateFlat(societyId, id, payload, actor, meta = {}, scope = {}) {
     const flat = await flatRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -859,21 +915,28 @@ class SocietyService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found')
     }
 
+    if (scope.wingId) {
+      await assertFlatInWing(id, societyId, scope.wingId)
+      if (payload.wingId && String(payload.wingId) !== String(scope.wingId)) {
+        throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Cannot move flats outside your managed wing')
+      }
+    }
+
     if (payload.wingId || payload.floorId) {
-      const wingId = payload.wingId || getRefId(flat.wing)
+      const nextWingId = payload.wingId || getRefId(flat.wing)
       const floorId = payload.floorId || getRefId(flat.floor)
 
-      const wing = await wingRepository.findInSociety(wingId, societyId)
+      const wing = await wingRepository.findInSociety(nextWingId, societyId)
       if (!wing) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wing not found')
 
       const floor = await floorRepository.findInSociety(floorId, societyId)
       if (!floor) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Floor not found')
 
-      if (getRefId(floor.wing) !== wingId) {
+      if (getRefId(floor.wing) !== String(nextWingId)) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Floor does not belong to the selected wing')
       }
 
-      flat.wing = wingId
+      flat.wing = nextWingId
       flat.floor = floorId
     }
 
@@ -906,10 +969,10 @@ class SocietyService {
       userAgent: meta.userAgent,
     })
 
-    return this.getFlat(societyId, id)
+    return this.getFlat(societyId, id, scope)
   }
 
-  async deleteFlat(societyId, id, actor, meta = {}) {
+  async deleteFlat(societyId, id, actor, meta = {}, scope = {}) {
     const flat = await flatRepository.model.findOne({
       _id: id,
       society: societyId,
@@ -917,6 +980,10 @@ class SocietyService {
     })
     if (!flat) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Flat not found')
+    }
+
+    if (scope.wingId) {
+      await assertFlatInWing(id, societyId, scope.wingId)
     }
 
     flat.isDeleted = true

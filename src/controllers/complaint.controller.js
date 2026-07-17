@@ -1,6 +1,7 @@
 import complaintService from '../services/complaint.service.js'
 import { HTTP_STATUS, MESSAGES } from '../constants/index.js'
 import { ApiResponse, asyncHandler } from '../utils/index.js'
+import { mergeWingScope } from '../helpers/wingScope.helper.js'
 
 const getMeta = (req) => ({
   ip: req.ip,
@@ -9,12 +10,17 @@ const getMeta = (req) => ({
 
 class ComplaintController {
   list = asyncHandler(async (req, res) => {
-    const result = await complaintService.list(req.societyId, req.query)
+    const result = await complaintService.list(
+      req.societyId,
+      mergeWingScope(req.query, req.wingId),
+    )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, result, MESSAGES.SUCCESS))
   })
 
   get = asyncHandler(async (req, res) => {
-    const complaint = await complaintService.get(req.societyId, req.params.id)
+    const complaint = await complaintService.get(req.societyId, req.params.id, {
+      wingId: req.wingId,
+    })
     res
       .status(HTTP_STATUS.OK)
       .json(new ApiResponse(HTTP_STATUS.OK, { complaint }, MESSAGES.SUCCESS))
@@ -26,6 +32,7 @@ class ComplaintController {
       req.body,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res
       .status(HTTP_STATUS.CREATED)
@@ -39,6 +46,7 @@ class ComplaintController {
       req.body,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res
       .status(HTTP_STATUS.OK)
@@ -52,6 +60,7 @@ class ComplaintController {
       req.body,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res
       .status(HTTP_STATUS.OK)
@@ -64,6 +73,7 @@ class ComplaintController {
       req.params.id,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, null, result.message))
   })

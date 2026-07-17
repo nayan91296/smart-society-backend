@@ -104,3 +104,10 @@ export const updateFlatRules = [
 ]
 
 export const flatIdRules = [param('id').isMongoId()]
+
+export const promoteWingSecretaryRules = [
+  param('wingId').isMongoId(),
+  body('userId').isMongoId().withMessage('userId is required'),
+]
+
+export const wingSecretaryParamRules = [param('wingId').isMongoId()]

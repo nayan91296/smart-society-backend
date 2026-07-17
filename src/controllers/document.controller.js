@@ -51,6 +51,12 @@ class DocumentController {
     )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, null, result.message))
   })
+
+  download = asyncHandler(async (req, res) => {
+    const file = await documentService.getDownloadStream(req.societyId, req.params.id)
+    res.setHeader('Content-Type', file.mimeType)
+    res.download(file.absolutePath, file.fileName)
+  })
 }
 
 export default new DocumentController()

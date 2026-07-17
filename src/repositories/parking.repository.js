@@ -20,7 +20,7 @@ class ParkingRepository extends BaseRepository {
 
   async search({ societyId, filter = {}, page = 1, limit = 10, sort = { slotNumber: 1 } } = {}) {
     const skip = (page - 1) * limit
-    const query = { society: societyId, isDeleted: false, ...filter }
+    const query = { ...filter, society: societyId, isDeleted: false }
 
     const [data, total] = await Promise.all([
       this.model

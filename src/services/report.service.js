@@ -8,6 +8,7 @@ import Invoice from '../models/invoice.model.js'
 import Payment from '../models/payment.model.js'
 import Parking from '../models/parking.model.js'
 import Vehicle from '../models/vehicle.model.js'
+import { getWingFlatIds } from '../helpers/wingScope.helper.js'
 import {
   COMPLAINT_STATUS,
   FLAT_STATUS,
@@ -74,55 +75,68 @@ const toCsv = (headers, rows) => {
 }
 
 class ReportService {
-  async getDashboard(societyId, query = {}) {
-    const { from, to } = parseDateRange(query)
-
-    const [
-      occupancy,
-      billing,
-      complaints,
-      visitors,
-      maintenance,
-      parking,
-    ] = await Promise.all([
-      this.getOccupancy(societyId),
-      this.getBilling(societyId, { from, to }),
-      this.getComplaints(societyId, { from, to }),
-      this.getVisitors(societyId, { from, to }),
-      this.getMaintenance(societyId, { from, to }),
-      this.getParking(societyId),
-    ])
-
-    return {
-      societyId,
-      range: { from, to },
-      summary: {
-        flats: occupancy.totals,
-        billing: billing.totals,
-        complaints: complaints.totals,
-        visitors: visitors.totals,
-        maintenance: maintenance.totals,
-        parking: parking.totals,
-      },
-      occupancy,
-      billing,
-      complaints,
-      visitors,
-      maintenance,
-      parking,
-    }
+  async #wingFlatMatch(societyId, wingId) {
+    if (!wingId) return {}
+    const flatIds = await getWingFlatIds(societyId, wingId)
+    return { flat: { $in: flatIds } }
   }
 
-  async getOccupancy(societyId) {
+  async getDashboard(societyId, query = {}) {
+    const { from, to } = parseDateRange(query)
+    const wingId = query.wingId || null
+
+    const occupancy = await this.getOccupancy(societyId, { wingId })
+    const complaints = await this.getComplaints(societyId, { from, to, wingId })
+    const visitors = await this.getVisitors(societyId, { from, to, wingId })
+    const maintenance = await this.getMaintenance(societyId, { from, to, wingId })
+
+    const summary = {
+      flats: occupancy.totals,
+      complaints: complaints.totals,
+      visitors: visitors.totals,
+      maintenance: maintenance.totals,
+    }
+
+    const result = {
+      societyId,
+      wingId,
+      scoped: Boolean(wingId),
+      range: { from, to },
+      summary,
+      occupancy,
+      complaints,
+      visitors,
+      maintenance,
+    }
+
+    if (!wingId) {
+      const [billing, parking] = await Promise.all([
+        this.getBilling(societyId, { from, to }),
+        this.getParking(societyId),
+      ])
+      result.billing = billing
+      result.parking = parking
+      result.summary.billing = billing.totals
+      result.summary.parking = parking.totals
+    }
+
+    return result
+  }
+
+  async getOccupancy(societyId, query = {}) {
     const society = toObjectId(societyId)
+    const wingId = query.wingId || null
+    const wingMatch = wingId ? { wing: toObjectId(wingId) } : {}
+    const flatScope = await this.#wingFlatMatch(societyId, wingId)
+
     const [byStatus, totalFlats, totalMembers, activeMembers] = await Promise.all([
       Flat.aggregate([
-        { $match: { society, isDeleted: false } },
+        { $match: { society, isDeleted: false, ...wingMatch } },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
-      Flat.countDocuments({ society, isDeleted: false }),
-      Member.countDocuments({ society, isDeleted: false }),
-      Member.countDocuments({ society, isDeleted: false, isActive: true }),
+      Flat.countDocuments({ society, isDeleted: false, ...wingMatch }),
+      Member.countDocuments({ society, isDeleted: false, ...flatScope }),
+      Member.countDocuments({ society, isDeleted: false, isActive: true, ...flatScope }),
     ])
 
     const statusCounts = groupCounts(byStatus)
@@ -132,6 +146,7 @@ class ReportService {
     const occupancyRate = totalFlats > 0 ? Number(((occupied / totalFlats) * 100).toFixed(2)) : 0
 
     return {
+      wingId: wingId || null,
       totals: {
         flats: totalFlats,
         occupied,
@@ -227,17 +242,20 @@ class ReportService {
     const { from, to } = query.from !== undefined ? query : parseDateRange(query)
     const society = toObjectId(societyId)
     const created = dateMatch('createdAt', from, to)
+    const wingScope = await this.#wingFlatMatch(societyId, query.wingId)
+
+    const match = { society, isDeleted: false, ...created, ...wingScope }
 
     const [byStatus, byPriority, total] = await Promise.all([
       Complaint.aggregate([
-        { $match: { society, isDeleted: false, ...created } },
+        { $match: match },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
       Complaint.aggregate([
-        { $match: { society, isDeleted: false, ...created } },
+        { $match: match },
         { $group: { _id: '$priority', count: { $sum: 1 } } },
       ]),
-      Complaint.countDocuments({ society, isDeleted: false, ...created }),
+      Complaint.countDocuments(match),
     ])
 
     const statusCounts = groupCounts(byStatus)
@@ -246,6 +264,7 @@ class ReportService {
       (statusCounts[COMPLAINT_STATUS.IN_PROGRESS] || 0)
 
     return {
+      wingId: query.wingId || null,
       totals: {
         total,
         open,
@@ -262,18 +281,21 @@ class ReportService {
     const { from, to } = query.from !== undefined ? query : parseDateRange(query)
     const society = toObjectId(societyId)
     const created = dateMatch('createdAt', from, to)
+    const wingScope = await this.#wingFlatMatch(societyId, query.wingId)
+    const match = { society, isDeleted: false, ...created, ...wingScope }
 
     const [byStatus, total] = await Promise.all([
       Visitor.aggregate([
-        { $match: { society, isDeleted: false, ...created } },
+        { $match: match },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
-      Visitor.countDocuments({ society, isDeleted: false, ...created }),
+      Visitor.countDocuments(match),
     ])
 
     const statusCounts = groupCounts(byStatus)
 
     return {
+      wingId: query.wingId || null,
       totals: {
         total,
         checkedIn: statusCounts[VISITOR_STATUS.CHECKED_IN] || 0,
@@ -289,14 +311,16 @@ class ReportService {
     const { from, to } = query.from !== undefined ? query : parseDateRange(query)
     const society = toObjectId(societyId)
     const created = dateMatch('createdAt', from, to)
+    const wingScope = await this.#wingFlatMatch(societyId, query.wingId)
+    const match = { society, isDeleted: false, ...created, ...wingScope }
 
     const [byStatus, costAgg, total] = await Promise.all([
       Maintenance.aggregate([
-        { $match: { society, isDeleted: false, ...created } },
+        { $match: match },
         { $group: { _id: '$status', count: { $sum: 1 } } },
       ]),
       Maintenance.aggregate([
-        { $match: { society, isDeleted: false, ...created } },
+        { $match: match },
         {
           $group: {
             _id: null,
@@ -305,13 +329,14 @@ class ReportService {
           },
         },
       ]),
-      Maintenance.countDocuments({ society, isDeleted: false, ...created }),
+      Maintenance.countDocuments(match),
     ])
 
     const statusCounts = groupCounts(byStatus)
     const costs = costAgg[0] || { estimatedCost: 0, actualCost: 0 }
 
     return {
+      wingId: query.wingId || null,
       totals: {
         total,
         open: statusCounts[MAINTENANCE_STATUS.OPEN] || 0,
@@ -367,11 +392,16 @@ class ReportService {
   async exportReport(societyId, query = {}) {
     const type = (query.type || 'dashboard').toLowerCase()
     const format = (query.format || 'json').toLowerCase()
+    const wingId = query.wingId || null
+
+    if (wingId && (type === 'billing' || type === 'parking')) {
+      throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Report type is not available for wing scope')
+    }
 
     let data
     switch (type) {
       case 'occupancy':
-        data = await this.getOccupancy(societyId)
+        data = await this.getOccupancy(societyId, query)
         break
       case 'billing':
         data = await this.getBilling(societyId, query)

@@ -1,6 +1,7 @@
 import visitorService from '../services/visitor.service.js'
 import { HTTP_STATUS, MESSAGES } from '../constants/index.js'
 import { ApiResponse, asyncHandler } from '../utils/index.js'
+import { mergeWingScope } from '../helpers/wingScope.helper.js'
 
 const getMeta = (req) => ({
   ip: req.ip,
@@ -9,17 +10,28 @@ const getMeta = (req) => ({
 
 class VisitorController {
   list = asyncHandler(async (req, res) => {
-    const result = await visitorService.list(req.societyId, req.query)
+    const result = await visitorService.list(
+      req.societyId,
+      mergeWingScope(req.query, req.wingId),
+    )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, result, MESSAGES.SUCCESS))
   })
 
   get = asyncHandler(async (req, res) => {
-    const visitor = await visitorService.get(req.societyId, req.params.id)
+    const visitor = await visitorService.get(req.societyId, req.params.id, {
+      wingId: req.wingId,
+    })
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, { visitor }, MESSAGES.SUCCESS))
   })
 
   create = asyncHandler(async (req, res) => {
-    const visitor = await visitorService.create(req.societyId, req.body, req.user, getMeta(req))
+    const visitor = await visitorService.create(
+      req.societyId,
+      req.body,
+      req.user,
+      getMeta(req),
+      { wingId: req.wingId },
+    )
     res
       .status(HTTP_STATUS.CREATED)
       .json(new ApiResponse(HTTP_STATUS.CREATED, { visitor }, MESSAGES.CREATED))
@@ -32,6 +44,7 @@ class VisitorController {
       req.body,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, { visitor }, MESSAGES.UPDATED))
   })
@@ -43,6 +56,7 @@ class VisitorController {
       req.body.status,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, { visitor }, MESSAGES.UPDATED))
   })
@@ -53,6 +67,7 @@ class VisitorController {
       req.params.id,
       req.user,
       getMeta(req),
+      { wingId: req.wingId },
     )
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, null, result.message))
   })

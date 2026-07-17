@@ -16,11 +16,12 @@ class MemberRepository extends BaseRepository {
   }
 
   async countActive(filter = {}) {
-    return this.model.countDocuments({ isDeleted: false, isActive: true, ...filter })
+    return this.model.countDocuments({ ...filter, isDeleted: false, isActive: true })
   }
 
-  async findByFlat(flatId, { activeOnly = true, limit } = {}) {
+  async findByFlat(flatId, { societyId, activeOnly = true, limit } = {}) {
     const query = { flat: flatId, isDeleted: false }
+    if (societyId) query.society = societyId
     if (activeOnly) query.isActive = true
 
     let q = this.model.find(query).sort({ isPrimary: -1, createdAt: 1 })
@@ -30,7 +31,7 @@ class MemberRepository extends BaseRepository {
 
   async search({ societyId, filter = {}, page = 1, limit = 10, sort = { createdAt: -1 } } = {}) {
     const skip = (page - 1) * limit
-    const query = { society: societyId, isDeleted: false, ...filter }
+    const query = { ...filter, society: societyId, isDeleted: false }
 
     const [data, total] = await Promise.all([
       this.model
@@ -64,8 +65,9 @@ class MemberRepository extends BaseRepository {
       .populate(flatPopulate)
   }
 
-  async unsetPrimaryOnFlat(flatId, exceptId = null) {
+  async unsetPrimaryOnFlat(flatId, { societyId, exceptId = null } = {}) {
     const filter = { flat: flatId, isPrimary: true, isDeleted: false }
+    if (societyId) filter.society = societyId
     if (exceptId) filter._id = { $ne: exceptId }
     return this.model.updateMany(filter, { $set: { isPrimary: false } })
   }

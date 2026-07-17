@@ -69,6 +69,11 @@ router.post('/events/:id/rsvp', validate(portalEventIdRules), memberPortalContro
 router.delete('/events/:id/rsvp', validate(portalEventIdRules), memberPortalController.cancelRsvp)
 
 router.get('/documents', validate(portalDocumentListRules), memberPortalController.listDocuments)
+router.get(
+  '/documents/:id/download',
+  validate(portalDocumentIdRules),
+  memberPortalController.downloadDocument,
+)
 router.get('/documents/:id', validate(portalDocumentIdRules), memberPortalController.getDocument)
 
 export default router

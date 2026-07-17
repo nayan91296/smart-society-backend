@@ -9,6 +9,13 @@ export const societyListRules = [
   query('status').optional().isIn(Object.values(SOCIETY_STATUS)),
 ]
 
+export const societyContextRules = [
+  body('societyId')
+    .optional({ nullable: true })
+    .custom((value) => value === null || value === '' || /^[a-fA-F0-9]{24}$/.test(value))
+    .withMessage('societyId must be a valid Mongo id or null to clear'),
+]
+
 export const createSocietyRules = [
   body('name').trim().notEmpty().withMessage('Society name is required').isLength({ max: 150 }),
   body('code')

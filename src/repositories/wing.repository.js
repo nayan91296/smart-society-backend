@@ -8,7 +8,7 @@ class WingRepository extends BaseRepository {
 
   async findBySociety(societyId, filter = {}) {
     return this.model
-      .find({ society: societyId, isDeleted: false, ...filter })
+      .find({ ...filter, society: societyId, isDeleted: false })
       .sort({ name: 1 })
   }
 

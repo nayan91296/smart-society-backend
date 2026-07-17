@@ -46,6 +46,7 @@ const sanitizeUser = (user) => {
     phone: doc.phone ?? null,
     role: doc.role,
     society: doc.society ?? null,
+    activeSocietyContext: doc.activeSocietyContext ?? null,
     isActive: doc.isActive,
     lastLogin: doc.lastLogin,
     createdAt: doc.createdAt,
@@ -54,6 +55,112 @@ const sanitizeUser = (user) => {
 }
 
 class SuperAdminService {
+  /**
+   * Ensures a user can be assigned as society admin without cross-tenant theft
+   * or demoting SUPER_ADMIN. User must be free (no society) or already on target.
+   */
+  async #assertAssignableSocietyAdmin(adminUser, targetSocietyId) {
+    if (!adminUser || adminUser.isDeleted) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Admin user not found')
+    }
+
+    if (!adminUser.isActive) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Admin user is inactive')
+    }
+
+    if (adminUser.role === ROLES.SUPER_ADMIN) {
+      throw new ApiError(HTTP_STATUS.FORBIDDEN, 'Cannot assign Super Admin as society admin')
+    }
+
+    if (adminUser.role !== ROLES.SOCIETY_ADMIN) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Selected user must be a Society Admin')
+    }
+
+    const currentSociety = adminUser.society?.toString?.() || null
+    const target = targetSocietyId?.toString?.() || null
+
+    if (currentSociety && target && currentSociety !== target) {
+      throw new ApiError(
+        HTTP_STATUS.CONFLICT,
+        'User is already assigned to another society',
+      )
+    }
+  }
+
+  async #assignSocietyAdmin(society, adminUser) {
+    await this.#assertAssignableSocietyAdmin(adminUser, society._id)
+
+    const previousAdminId = society.admin?.toString?.() || null
+    if (previousAdminId && previousAdminId !== adminUser._id.toString()) {
+      const previous = await userRepository.findById(previousAdminId)
+      if (previous && previous.society?.toString() === society._id.toString()) {
+        previous.society = null
+        await previous.save({ validateBeforeSave: false })
+      }
+    }
+
+    adminUser.society = society._id
+    adminUser.role = ROLES.SOCIETY_ADMIN
+    await adminUser.save({ validateBeforeSave: false })
+    society.admin = adminUser._id
+  }
+
+  async getContext(userId) {
+    const user = await userRepository.findById(userId)
+    if (!user) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, MESSAGES.USER_NOT_FOUND)
+    }
+
+    if (!user.activeSocietyContext) {
+      return { society: null }
+    }
+
+    const society = await societyRepository.findByIdNotDeleted(user.activeSocietyContext)
+    if (!society) {
+      user.activeSocietyContext = null
+      await user.save({ validateBeforeSave: false })
+      return { society: null }
+    }
+
+    return {
+      society: sanitizeSociety(society),
+      isOperational: society.status === SOCIETY_STATUS.ACTIVE,
+    }
+  }
+
+  async setContext(userId, societyId) {
+    const user = await userRepository.findById(userId)
+    if (!user) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, MESSAGES.USER_NOT_FOUND)
+    }
+
+    if (societyId === null || societyId === undefined || societyId === '') {
+      user.activeSocietyContext = null
+      await user.save({ validateBeforeSave: false })
+      return { society: null }
+    }
+
+    const society = await societyRepository.findByIdNotDeleted(societyId)
+    if (!society) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Society not found')
+    }
+
+    if (society.status !== SOCIETY_STATUS.ACTIVE) {
+      throw new ApiError(
+        HTTP_STATUS.BAD_REQUEST,
+        'Only ACTIVE societies can be selected as context',
+      )
+    }
+
+    user.activeSocietyContext = society._id
+    await user.save({ validateBeforeSave: false })
+
+    return {
+      society: sanitizeSociety(society),
+      isOperational: true,
+    }
+  }
+
   async getDashboard() {
     const [
       totalSocieties,
@@ -149,11 +256,13 @@ class SuperAdminService {
 
     if (payload.adminUserId) {
       adminUser = await userRepository.findById(payload.adminUserId)
-      if (!adminUser || adminUser.isDeleted) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Admin user not found')
-      }
-      if (adminUser.role !== ROLES.SOCIETY_ADMIN) {
-        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Selected user must be a Society Admin')
+      // Target society does not exist yet — only free (unassigned) admins allowed
+      await this.#assertAssignableSocietyAdmin(adminUser, null)
+      if (adminUser.society) {
+        throw new ApiError(
+          HTTP_STATUS.CONFLICT,
+          'User is already assigned to another society',
+        )
       }
     } else if (payload.adminEmail) {
       const existingAdmin = await userRepository.findByEmail(payload.adminEmail)
@@ -220,13 +329,7 @@ class SuperAdminService {
 
     if (payload.admin) {
       const adminUser = await userRepository.findById(payload.admin)
-      if (!adminUser || adminUser.isDeleted) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Admin user not found')
-      }
-      adminUser.society = society._id
-      adminUser.role = ROLES.SOCIETY_ADMIN
-      await adminUser.save({ validateBeforeSave: false })
-      society.admin = adminUser._id
+      await this.#assignSocietyAdmin(society, adminUser)
     }
 
     if (payload.name !== undefined) society.name = payload.name

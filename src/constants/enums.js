@@ -236,3 +236,11 @@ export const ACTIVITY_ACTION = {
   STATUS_CHANGE: 'STATUS_CHANGE',
   OTHER: 'OTHER',
 }
+
+/** UI locale preference only — API messages stay English. */
+export const PREFERRED_LANGUAGE = {
+  EN: 'en',
+  GU: 'gu',
+}
+
+export const PREFERRED_LANGUAGE_VALUES = Object.values(PREFERRED_LANGUAGE)
